@@ -1,0 +1,10 @@
+<svg viewBox="0 0 64 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- Левый язык -->
+  <path d="M32 8 C32 8, 10 36, 10 54 C10 74, 54 74, 54 54 C54 36, 32 8, 32 8 Z" fill="#ff1744"/>
+  <!-- Центральный язык -->
+  <path d="M32 8 C32 8, 24 32, 24 54 C24 66, 40 66, 40 54 C40 32, 32 8, 32 8 Z" fill="#ff1744"/>
+  <!-- Правый язык -->
+  <path d="M32 8 C32 8, 20 40, 20 54 C20 70, 44 70, 44 54 C44 40, 32 8, 32 8 Z" fill="#ff1744"/>
+  <!-- HOT text -->
+  <text x="32" y="66" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" letter-spacing="2">HOT</text>
+</svg> 

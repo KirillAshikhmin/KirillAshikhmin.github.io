@@ -1,0 +1,98 @@
+# Jekyll configuration for Sprut.Hub Tools
+title: Sprut.Hub Tools
+description: Коллекция полезных сценариев и шаблонов для умного дома Sprut.Hub
+url: "https://kirillashikhmin.github.io"
+baseurl: ""
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+permalink: pretty
+
+# Collections
+collections:
+  scenarios:
+    output: true
+    permalink: /scenarios/:name/
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+      type: "scenarios"
+    values:
+      layout: "scenario"
+
+# Plugins
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
+
+# Include
+include:
+  - _pages
+
+# Author information
+author:
+  name: Kirill Ashikhmin
+  email: 
+  bio: Разработчик сценариев для Sprut.Hub
+  location: 
+  links:
+    - label: "Telegram"
+      icon: "fab fa-telegram"
+      url: "https://t.me/smart_sputnik"
+    - label: "GitHub"
+      icon: "fab fa-github"
+      url: "https://github.com/KirillAshikhmin"
+
+# Social media
+social_media:
+  - name: "Telegram"
+    url: "https://t.me/smart_sputnik"
+    icon: "fab fa-telegram"
+  - name: "GitHub"
+    url: "https://github.com/KirillAshikhmin/Sprut.Hub_Tools"
+    icon: "fab fa-github"
+  - name: "Boosty"
+    url: "https://boosty.to/smart_kirill"
+    icon: "fas fa-heart"
+
+# Theme settings
+theme_settings:
+  # Meta
+  title: Sprut.Hub Tools
+  description: Коллекция полезных сценариев и шаблонов для умного дома Sprut.Hub
+  
+  # Header
+  header_text: Sprut.Hub Tools
+  header_text_feature_image: 
+  header_feature_image: 
+  header_feature_image_alt: 
+  
+  # Footer
+  footer_text: |
+    <p>&copy; 2024 Sprut.Hub Tools. Все сценарии распространяются бесплатно.</p>
+    <p>Поддержите развитие проекта на <a href="https://boosty.to/smart_kirill">Boosty</a></p>
+  
+  # Sidebar
+  sidebar: true
+  sidebar_nav:
+    - title: "Освещение"
+      url: "#освещение"
+    - title: "Климат и комфорт"
+      url: "#климат"
+    - title: "Управление"
+      url: "#управление"
+    - title: "GitHub"
+      url: "https://github.com/KirillAshikhmin/Sprut.Hub_Tools" 

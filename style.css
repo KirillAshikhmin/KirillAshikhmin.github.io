@@ -1,0 +1,264 @@
+/* Variables */
+:root {
+    --primary-color: #007bff;
+    --secondary-color: #6c757d;
+    --success-color: #28a745;
+    --info-color: #17a2b8;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --light-color: #f8f9fa;
+    --dark-color: #343a40;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: #333;
+}
+
+.hero-section {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4rem 0;
+    margin-bottom: 3rem;
+}
+
+.hero-section h1 {
+    font-size: 3rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+}
+
+.hero-section p {
+    font-size: 1.2rem;
+    opacity: 0.9;
+}
+
+.hero-cogs {
+    font-size: 8rem;
+    opacity: 0.3;
+}
+
+.scenario-card {
+    border: none;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    margin-bottom: 2rem;
+    overflow: hidden;
+    position: relative;
+}
+
+.scenario-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+    color: white;
+    border: none;
+    padding: 1.5rem;
+}
+.card-header.lighting {
+    background: linear-gradient(45deg, #ffc107, #ff8c00);
+}
+.card-header.climate {
+    background: linear-gradient(45deg, #17a2b8, #20c997);
+}
+.card-header.control {
+    background: linear-gradient(45deg, #6c757d, #495057);
+}
+
+.card-header-flex {
+    display: flex;
+    align-items: center;
+}
+.flex-grow-1 {
+    flex-grow: 1;
+}
+
+.card-body {
+    padding: 1.5rem;
+}
+
+.download-btn {
+    background: var(--success-color);
+    border: none;
+    border-radius: 25px;
+    padding: 0.5rem 1.5rem;
+    color: white;
+    text-decoration: none;
+    display: inline-block;
+    margin: 0.25rem;
+    transition: all 0.3s ease;
+}
+.download-btn[download]::after {
+    content: " \f019";
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+}
+
+.github-btn {
+    background: var(--dark-color);
+    border: none;
+    border-radius: 25px;
+    padding: 0.5rem 1.5rem;
+    color: white;
+    text-decoration: none;
+    display: inline-block;
+    margin: 0.25rem;
+    transition: all 0.3s ease;
+}
+
+.github-btn:hover {
+    background: #495057;
+    color: white;
+    transform: scale(1.05);
+}
+
+.feature-icon {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+}
+
+.editor-section {
+    padding: 3rem 0;
+    margin: 3rem 0;
+}
+
+.category-btn {
+    background: linear-gradient(45deg, var(--primary-color), var(--info-color));
+    border: none;
+    border-radius: 15px;
+    padding: 1rem 2rem;
+    color: white;
+    text-decoration: none;
+    display: inline-block;
+    margin: 0.5rem;
+    transition: all 0.3s ease;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.category-btn:hover {
+    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.category-btn.lighting {
+    background: linear-gradient(45deg, #ffc107, #ff8c00);
+}
+
+.category-btn.climate {
+    background: linear-gradient(45deg, #17a2b8, #20c997);
+}
+
+.category-btn.control {
+    background: linear-gradient(45deg, #6c757d, #495057);
+}
+
+.footer {
+    background: var(--dark-color);
+    color: white;
+    padding: 2rem 0;
+    margin-top: 3rem;
+}
+
+.social-links a {
+    color: white;
+    font-size: 1.5rem;
+    margin: 0 0.5rem;
+    transition: color 0.3s ease;
+}
+
+.social-links a:hover {
+    color: var(--primary-color);
+}
+
+.badge-category {
+    background: var(--info-color);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+
+.badge-type {
+    background: var(--warning-color);
+    color: var(--dark-color);
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+}
+
+.category-section {
+    scroll-margin-top: 100px;
+}
+
+.hot-icon {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    height: 38px;
+}
+.hot-icon img {
+    width: 64px;
+    height: 76px;
+    display: block;
+}
+
+/* Custom classes for replaced inline styles */
+.card-link-block {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+.card-custom-radius {
+    border-radius: 18px;
+}
+.card-body-custom-gradient {
+    background: linear-gradient(90deg,#ff9800 0%,#ff5252 100%);
+    color: white;
+    border-radius: 18px;
+}
+.card-tools-icon {
+    font-size: 2.5rem;
+}
+.card-title-bold {
+    font-weight: 700;
+}
+.custom-link-white {
+    color: #fff;
+    text-decoration: underline;
+    font-weight: 600;
+}
+.custom-btn-telegram {
+    border-radius: 25px;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.custom-link-blue {
+    color: #007bff;
+}
+.scroll-top-btn {
+    display: none;
+    position: fixed;
+    bottom: 40px;
+    left: 40px;
+    right: auto;
+    z-index: 9999;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg,#ff5252,#ff9800);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    font-size: 2rem;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s;
+} 
