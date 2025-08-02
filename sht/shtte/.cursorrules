@@ -1,0 +1,80 @@
+{
+  "projectDescription": "Этот проект — сервис редактора и валидатора шаблонов устройств для Sprut.Hub. Позволяет создавать, редактировать, валидировать и автоматически исправлять шаблоны устройств на основе JSON Schema.",
+  "keyFiles": [
+    {
+      "file": "index.html",
+      "role": "Основной файл и точка входа в редактор."
+    },
+    {
+      "file": "accessory_full_optimized.json",
+      "role": "JSON Schema для валидации шаблонов. Только для чтения."
+    },
+    {
+      "file": "sh_types.json",
+      "role": "Перечень всех типов сервисов, характеристик и их параметры. Только для чтения."
+    },
+    {
+      "file": "style.css",
+      "role": "Стили проекта."
+    },
+    {
+      "file": "scripts/*.js",
+      "role": "Скрипты редактора."
+    },
+    {
+      "file": "templates/",
+      "role": "Примеры шаблонов устройств для тестирования и работы редактора (только JSON)."
+    }
+  ],
+  "rules": [
+    {
+      "pattern": "accessory_full_optimized.json",
+      "language": "json",
+      "aiSuggestions": false,
+      "aiRefactor": false,
+      "description": "JSON Schema. Только для чтения. AI-редактирование и предложения отключены."
+    },
+    {
+      "pattern": "sh_types.json",
+      "language": "json",
+      "aiSuggestions": false,
+      "aiRefactor": false,
+      "description": "Перечень типов сервисов и характеристик. Только для чтения. AI-редактирование и предложения отключены."
+    },
+    {
+      "pattern": "templates/**/*.json",
+      "language": "json",
+      "aiSuggestions": true,
+      "aiRefactor": false,
+      "description": "Примеры шаблонов устройств. AI-подсказки включены, рефакторинг отключен, так как это тестовые/примерные данные."
+    },
+    {
+      "pattern": "templates/**/Locales/*.properties",
+      "ignore": true,
+      "description": "Игнорировать все файлы локалей в templates/, они не связаны с проектом."
+    },
+    {
+      "pattern": "templates/**/*",
+      "ignore": true,
+      "description": "Игнорировать все файлы, кроме JSON, в templates/."
+    },
+    {
+      "pattern": "scripts/**/*.js",
+      "language": "javascript",
+      "aiSuggestions": true,
+      "aiRefactor": true,
+      "description": "Скрипты редактора. Включены AI-подсказки и рефакторинг."
+    },
+    {
+      "pattern": "*.json",
+      "language": "json",
+      "aiSuggestions": true,
+      "aiRefactor": false,
+      "description": "Корневые JSON-файлы: AI-подсказки включены, рефакторинг отключен."
+    }
+  ],
+  "default": {
+    "aiSuggestions": true,
+    "aiRefactor": true
+  }
+} 

@@ -77,6 +77,3 @@ yarn-error.log*
 
 # Ignore application configuration
 /config/application.yml 
-
-# Test templates
-/sht/shtte/templates/*
