@@ -55,7 +55,7 @@
 - **GitHub**: [@KirillAshikhmin](https://github.com/KirillAshikhmin)
 - **Google Play**: [Приложения](https://play.google.com/store/apps/developer?id=Kirill+Ashikhmin&hl=ru)
 - **Умный Спутник**: [Сценарии и сервисы](/sht/)
-- **Редактор шаблонов**: [Sprut.Hub Tools](https://kirillashikhmin.github.io/Sprut.Hub_Tools/)
+- **Редактор шаблонов**: [Sprut.Hub Tools](https://kirillashikhmin.github.io/sht/editor)
 
 ## 🛠 Технологии
 

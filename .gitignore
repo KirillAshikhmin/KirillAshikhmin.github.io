@@ -79,4 +79,4 @@ yarn-error.log*
 /config/application.yml 
 
 # Test templates
-/sht/shtte/templates/*
+/sht/editor/templates/*
