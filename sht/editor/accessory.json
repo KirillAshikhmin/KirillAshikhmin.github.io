@@ -458,6 +458,10 @@
           "type": "boolean",
           "default": false
         },
+        "writeOnly": {
+          "type": "boolean",
+          "default": false
+        },
         "option": {
           "type": "boolean",
           "default": true,
@@ -2058,6 +2062,7 @@
                     "TUYA_BOOLEAN",
                     "TUYA_ENUMERATION_8_BIT",
                     "TUYA_32_BIT_INTEGER",
+                    "BITMAP_8_BIT",
                     "BITMAP_16_BIT"
                   ]
                 }
