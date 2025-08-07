@@ -119,6 +119,9 @@
                                     </div>
                                 </div>
                                 <div class="right-buttons">
+                                    <button onclick="showServiceTypes()" class="btn btn-info">
+                                        <i class="fas fa-list"></i> Типы сервисов
+                                    </button>
                                     <button onclick="downloadTemplate()" class="btn btn-success">
                                         <i class="fas fa-download"></i> Скачать
                                     </button>
@@ -194,6 +197,24 @@
             </div>
         </div>
     </section>
+
+    <!-- Service Types Modal -->
+    <div id="serviceTypesModal" class="modal-select-dialog" style="display: none;">
+        <div class="modal-select-content">
+            <div class="modal-select-header">
+                <h5><i class="fas fa-list"></i> Типы сервисов</h5>
+                <button class="modal-select-close" onclick="closeServiceTypesModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="service-types-search">
+                <input type="text" id="serviceTypesSearch" placeholder="Поиск по названию или типу сервиса..." class="form-control">
+            </div>
+            <div class="service-types-list" id="serviceTypesList">
+                <!-- Service types will be loaded here -->
+            </div>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer class="footer">
@@ -331,5 +352,6 @@
     <script src="scripts/validation.js"></script>
     <script src="scripts/archive.js"></script>
     <script src="scripts/context-menu.js"></script>
+    <script src="scripts/service-types.js"></script>
 </body>
 </html>

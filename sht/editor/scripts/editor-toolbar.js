@@ -231,7 +231,7 @@ window.initEditorToolbar = function() {
 };
 
 // Диалог выбора контроллера
-window.showControllerSelectDialog = function(onSelect) {
+window.showControllerSelectDialog = function(onSelect, includeClipboard = true) {
     const controllers = [
         { name: 'MQTT', value: 'MQTT' },
         { name: 'ZigBee', value: 'ZigBee' },
@@ -239,12 +239,24 @@ window.showControllerSelectDialog = function(onSelect) {
         { name: 'Xiaomi', value: 'Xiaomi' },
         { name: 'ZWave', value: 'ZWave' }
     ];
+    
+    // Добавляем опцию "Из буфера обмена" если нужно
+    const items = includeClipboard ? [
+        { name: 'Из буфера обмена', value: 'clipboard', isClipboard: true },
+        ...controllers
+    ] : controllers;
+    
     window.showModalSelectDialog({
         title: 'Выберите контроллер',
-        items: controllers,
-        renderItem: (item) => `<div class='modal-select-item-title'>${item.name}</div>`,
+        items: items,
+        renderItem: (item) => {
+            if (item.isClipboard) {
+                return `<div class='modal-select-item-title'><i class="fas fa-clipboard"></i> ${item.name}</div>`;
+            }
+            return `<div class='modal-select-item-title'>${item.name}</div>`;
+        },
         onSelect: (item) => {
-            if (onSelect) onSelect(item.value);
+            if (onSelect) onSelect(item.value, item);
         },
         enableSearch: false
     });
@@ -252,8 +264,25 @@ window.showControllerSelectDialog = function(onSelect) {
 
 // Функция создания пустого шаблона
 window.createEmptyTemplate = function() {
-    window.showControllerSelectDialog(function(controllerValue) {
+    window.showControllerSelectDialog(function(controllerValue, item) {
         if (!controllerValue) return;
+        
+        // Если выбрана опция "Из буфера обмена"
+        if (controllerValue === 'clipboard') {
+            window.handleClipboardPaste(
+                // onControllerDetected callback
+                function(detectedController, clipboardData) {
+                    // Контроллер определен автоматически - ничего дополнительно не делаем
+                },
+                // onControllerNotDetected callback  
+                function(selectedController, clipboardData) {
+                    // Контроллер выбран вручную - ничего дополнительно не делаем
+                }
+            );
+            return;
+        }
+        
+        // Обычный выбор контроллера - создаем пустой шаблон
         // Установить выбранный контроллер в select
         const select = document.getElementById('controllerSelect');
         if (select) {
@@ -978,3 +1007,84 @@ window.showCharacteristicSelectDialog = function(service, onDone, showBackButton
         }
     });
 })();
+
+// Функция для обработки вставки из буфера обмена
+window.handleClipboardPaste = function(onControllerDetected, onControllerNotDetected) {
+    try {
+        navigator.clipboard.readText().then(text => {
+            if (!text || !text.trim()) {
+                window.showToast('Буфер обмена пуст', 'error');
+                return;
+            }
+            
+            try {
+                // Пытаемся распарсить JSON из буфера обмена
+                const clipboardData = JSON.parse(text.trim());
+                
+                // Пытаемся определить контроллер
+                let detectedController = null;
+                if (window.controllerLinkFields) {
+                    detectedController = window.detectControllerType(clipboardData, window.controllerLinkFields);
+                }
+                
+                if (detectedController) {
+                    // Контроллер определен - устанавливаем его и вызываем callback
+                    const select = document.getElementById('controllerSelect');
+                    if (select) {
+                        select.value = detectedController;
+                        const event = new Event('change', { bubbles: true });
+                        select.dispatchEvent(event);
+                    }
+                    
+                    // Загружаем данные в редактор
+                    window.editor.setValue(JSON.stringify(clipboardData, null, 2));
+                    window.editor.refresh();
+                    document.getElementById('errorOutput').textContent = '';
+                    document.getElementById('correctionOutput').textContent = '';
+                    document.getElementById('autoFixContainer').innerHTML = '';
+                    
+                    window.showToast(`Контроллер ${detectedController} определен автоматически`, 'success');
+                    
+                    if (onControllerDetected) {
+                        onControllerDetected(detectedController, clipboardData);
+                    }
+                } else {
+                    // Контроллер не определен - показываем диалог выбора без опции "Из буфера обмена"
+                    window.showControllerSelectDialog(function(controllerValue, item) {
+                        if (!controllerValue) return;
+                        
+                        // Устанавливаем выбранный контроллер
+                        const select = document.getElementById('controllerSelect');
+                        if (select) {
+                            select.value = controllerValue;
+                            const event = new Event('change', { bubbles: true });
+                            select.dispatchEvent(event);
+                        }
+                        
+                        // Загружаем данные в редактор
+                        window.editor.setValue(JSON.stringify(clipboardData, null, 2));
+                        window.editor.refresh();
+                        document.getElementById('errorOutput').textContent = '';
+                        document.getElementById('correctionOutput').textContent = '';
+                        document.getElementById('autoFixContainer').innerHTML = '';
+                        
+                        if (onControllerNotDetected) {
+                            onControllerNotDetected(controllerValue, clipboardData);
+                        }
+                    }, false); // includeClipboard = false
+                }
+                
+            } catch (parseError) {
+                window.showToast('Ошибка парсинга JSON из буфера обмена', 'error');
+                console.error('Ошибка парсинга JSON из буфера обмена:', parseError);
+            }
+            
+        }).catch(e => {
+            console.error('Ошибка чтения из буфера обмена:', e);
+            window.showToast('Ошибка чтения из буфера обмена', 'error');
+        });
+    } catch (e) {
+        console.error('Ошибка доступа к буферу обмена:', e);
+        window.showToast('Ошибка доступа к буферу обмена', 'error');
+    }
+};
