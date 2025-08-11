@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Документация по шаблонам Sprut.Hub</title>
+  <meta name="description" content="Что такое шаблоны Sprut.Hub, как их создавать и валидировать. Полное описание структуры и полей для MQTT, ModBus, ZigBee, Z-Wave, Xiaomi.">
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <section class="hero-section">
+    <div class="container">
+      <div class="row align-items-center">
+        <div class="col-lg-8">
+          <h1><i class="fas fa-book"></i> Документация по шаблонам</h1>
+          <p class="lead">Что такое шаблоны, как устроены, как создавать и валидировать</p>
+          <p>
+            Источники: 
+            <a href="https://wiki.spruthub.ru/%D0%A7%D1%82%D0%BE_%D1%82%D0%B0%D0%BA%D0%BE%D0%B5_%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D1%8B%3F" class="custom-link-white">Что такое шаблоны?</a>,
+            <a href="https://wiki.spruthub.ru/%D0%A1%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5_%D0%BA%D0%B0%D1%81%D1%82%D0%BE%D0%BC%D0%BD%D0%BE%D0%B3%D0%BE_%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0_%D0%BD%D0%B0_%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D1%80%D0%B5_ESP" class="custom-link-white">Пример MQTT</a>,
+            <a href="https://wiki.spruthub.ru/%D0%A1%D0%BF%D0%B8%D1%81%D0%BE%D0%BA_%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D0%BC%D1%8B%D1%85_%D0%B8_%D0%BD%D0%B5_%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D0%BC%D1%8B%D1%85_%D0%BF%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB%D0%BE%D0%B2_%D0%B8_%D1%8D%D0%BA%D0%BE%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BC" class="custom-link-white">Поддерживаемые платформы</a>
+          </p>
+        </div>
+        <div class="col-lg-4 text-center">
+          <i class="fas fa-diagram-project hero-cogs"></i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main class="container">
+    <div class="mb-4">
+      <a href="/sht/editor/" class="category-btn control"><i class="fas fa-code"></i> Открыть редактор</a>
+      <a href="/sht/docs/editor-guide.html" class="category-btn lighting"><i class="fas fa-list-check"></i> Инструкция по редактору</a>
+      <a href="https://github.com/sprut/Hub/issues" class="category-btn climate"><i class="fab fa-github"></i> Запросы на шаблоны</a>
+    </div>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-seedling"></i> Как составить шаблон</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <ol>
+          <li><b>Определите тип контроллера</b>: MQTT, ModBus, ZigBee, Z‑Wave или Xiaomi. Это видно по устройству/интеграции.</li>
+          <li><b>Найдите похожий шаблон</b> в <code>/sht/editor/templates/main/Templates</code> и откройте его в редакторе.</li>
+          <li><b>Заполните верхний уровень</b>: производитель, модель, <b>modelId</b> (для MQTT — путь топика с шаблоном; для остальных — статический идентификатор).</li>
+          <li><b>Опишите сервисы</b>: добавьте один или несколько сервисов (лампа, термостат, датчик). Список типов смотрите в редакторе «Типы сервисов».</li>
+          <li><b>Добавьте характеристики</b> в каждый сервис: состояние (On), числовые значения (температура, скорость), режимы (validValues). Если значение должно записываться — оставьте <code>write: true</code> (по умолчанию) и укажите диапазон.</li>
+          <li><b>Привяжите значения через link</b>:
+            <ul>
+              <li><b>MQTT</b>: используйте <code>topicGet</code>/<code>topicSet</code>, при необходимости — <code>map</code> (замена строк) и простые формулы в <code>inFunc/outFunc</code>.</li>
+              <li><b>ModBus</b>: укажите <code>address</code> и <code>function</code>, при необходимости <code>scale</code>.</li>
+              <li><b>ZigBee</b>: укажите <code>endpoint</code>, <code>cluster</code>, <code>attribute</code>.</li>
+              <li><b>Z‑Wave</b>: укажите <code>class</code> и <code>value</code> (а для показаний энергии — <code>param</code>).</li>
+              <li><b>Xiaomi</b>: используйте <code>getProp</code>/<code>setProp</code>.</li>
+            </ul>
+          </li>
+          <li><b>Добавьте опции</b> (по желанию): переключатели, списки, статусы. При необходимости задайте <code>inputType</code> (например, <code>STATUS</code> или <code>BUTTON</code>).</li>
+          <li><b>Сохраните и проверьте</b>: нажмите «Исправить под требования Sprut.hub», затем «Валидировать». При ошибках — следуйте подсказкам и исправьте.</li>
+          <li><b>Скачайте JSON</b> и загрузите на хаб. Если поведение не совпадает — скорректируйте <code>map</code> или диапазоны.</li>
+        </ol>
+        <p>Советы: начинайте с минимального рабочего шаблона (1 сервис, 1‑2 характеристики). Постепенно добавляйте остальное, валидируя на каждом шаге.</p>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-circle-info"></i> Что такое шаблоны</h2>
+      <p>
+        Шаблон описывает, как Sprut.Hub обнаруживает устройство и к каким сервисам/характеристикам его привязывает. 
+        Это JSON-документ с полями верхнего уровня (описание устройства) и списком сервисов с характеристиками и привязками к протоколу (MQTT, ModBus, ZigBee, Z‑Wave, Xiaomi).
+        Подробно см. раздел «Что такое шаблоны?» на вики.
+      </p>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-sitemap"></i> Структура шаблона и JSON‑формат</h2>
+      <div class="card scenario-card">
+        <div class="card-body">
+          <p>Шаблоны пишутся в формате JSON (JavaScript Object Notation): ключи и строковые значения в двойных кавычках, числа — без кавычек, массивы — в квадратных скобках, объекты — в фигурных. Не допускаются комментарии. Валидность проверяйте кнопкой «Валидировать» в редакторе.</p>
+          <pre><code>{
+  "manufacturer": "...",
+  "model": "...",
+  "modelId": "...",
+  "services": [ { "type": "...", "characteristics": [ { "type": "...", "link": [ { /* привязка */ } ] } ] } ],
+  "options": [ { "name": "...", "type": "...", "link": [ { /* привязка */ } ] } ]
+}</code></pre>
+          <h5>Верхний уровень</h5>
+          <ul>
+            <li><b>name</b> (опц.): отображаемое имя устройства.</li>
+            <li><b>manufacturer</b>, <b>model</b>: производитель и модель.</li>
+            <li><b>issue</b> (опц.): ссылка на задачу/обсуждение по шаблону.</li>
+            <li><b>manufacturerId</b>, <b>modelId</b>: идентификаторы обнаружения.
+              <ul>
+                <li>MQTT: <b>modelId</b> — путь топика с regex; группы доступны как <code>(1)</code>, <code>(2)</code> и т.д. в <b>link</b>.</li>
+                <li>ZigBee/Z‑Wave/ModBus/Xiaomi: <b>modelId</b> — статический идентификатор модели/пары значений; без топиков/regex.</li>
+              </ul>
+            </li>
+            <li><b>catalogId</b> (опц.): ID в каталоге.</li>
+            <li><b>status</b> (опц.): этап готовности шаблона: <code>Done</code>, <code>Test</code> и т.п.</li>
+            <li><b>init</b> (опц.): начальные чтения/настройки (ModBus, ZigBee ZCL, Z‑Wave association).</li>
+            <li><b>template</b> (опц., ZigBee): подключение базовых подшаблонов.</li>
+          </ul>
+
+          <h5>services — перечень возможностей устройства</h5>
+          <p>Сервис — это функциональный блок (например, лампа, термостат, датчик). Доступные типы сервисов смотрите в хабе (Настройки) или прямо в редакторе в разделе «Типы сервисов».</p>
+          <ul>
+            <li><b>name</b> (опц.): имя сервиса.</li>
+            <li><b>type</b>: тип сервиса.</li>
+            <li><b>visible</b> (опц.): скрыть/показать сервис в интерфейсе.</li>
+            <li><b>logics</b> (опц.): встроенная логика вычисления некоторых характеристик.</li>
+            <li><b>characteristics</b>: список характеристик сервиса.</li>
+          </ul>
+
+          <h5>characteristics — параметры сервиса</h5>
+          <p>Характеристика — конкретная величина или состояние (вкл/выкл, температура, яркость и т.д.).</p>
+          <ul>
+            <li><b>type</b>: тип характеристики.</li>
+            <li><b>name</b> (опц.), <b>description</b> (опц.), <b>unit</b> (опц.).</li>
+            <li><b>value</b> (опц.): начальное/фиксированное значение (например, <code>TemperatureDisplayUnits: "CELSIUS"</code>).</li>
+            <li><b>minValue</b>, <b>maxValue</b>, <b>minStep</b> — диапазон и шаг.</li>
+            <li><b>validValues</b> (опц.): перечень допустимых значений (списком чисел или констант через запятую, например <code>"OFF,HEAT,COOL"</code>).</li>
+            <li><b>write</b> (опц.): можно ли записывать значение (<code>true/false</code>).</li>
+            <li><b>visible</b> (опц.): скрыть/показать характеристику.</li>
+            <li><b>link</b>: как прочитать/записать значение через выбранный контроллер (см. ниже).</li>
+            <li><b>option</b> (опц.): пометка как дополнительной настройки.</li>
+            <li><b>data</b> (опц.): доп. параметры для логик/визуализации.</li>
+          </ul>
+
+          <h5>link — привязка к контроллеру</h5>
+          <p>Определяет, откуда читать и куда писать значение. Набор полей зависит от контроллера (MQTT/ModBus/ZigBee/Z‑Wave/Xiaomi) — см. раздел «Поля link по типам контроллеров» ниже.</p>
+
+          <h5>options — настройки устройства</h5>
+          <p>Опции — это настраиваемые параметры устройства (переключатели, списки, числа). По структуре совпадают с характеристиками, но чаще используются для конфигурации. В отличие от характеристик, для опций может понадобиться уточнение способа ввода:</p>
+          <ul>
+            <li><b>name</b>: имя опции.</li>
+            <li><b>type</b>: тип значения (Boolean, Integer, Double, String и т.д.).</li>
+            <li><b>value</b> (опц.): начальное значение.</li>
+            <li><b>values</b> (опц.): справочник возможных значений <code>[{ value, name, description? }]</code>.</li>
+            <li><b>unit</b> (опц.).</li>
+            <li><b>inputType</b> (опц.): как отображать/использовать опцию (например, <code>STATUS</code> — статусное поле, <code>BUTTON</code> — кнопка).</li>
+            <li><b>write</b>, <b>visible</b>, <b>init</b> (опц.).</li>
+            <li><b>link</b>: привязка к контроллеру аналогична характеристикам.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-plug"></i> Поля link по типам контроллеров</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <h5>MQTT</h5>
+        <ul>
+          <li><b>topicGet</b> (чтение), <b>topicSet</b> (запись). Поддержка шаблонов с группами <code>(1)</code>, <code>(2)</code> и т.п. из <code>modelId</code>.</li>
+          <li><b>type</b>: <code>String</code> | <code>Integer</code> | <code>Double</code> | <code>RGB</code> и т.д.</li>
+          <li>Преобразования: <b>map</b>, <b>outMap</b>, <b>inFunc</b>, <b>outFunc</b>, <b>format</b>, <b>delimiter</b>, <b>checkValue</b>, <b>retain</b> (реже).</li>
+          <li><b>Wiren Board</b>: распространённый паттерн топиков <code>/devices/(1)/controls/(2)</code> и производные (например <code>(2)_open_circuit</code>), <b>modelId</b> вида <code>/devices/(ensystec_leak_protect_[0-9]{1,3})/controls/(input_([1-9]0?))/meta/type</code>.</li>
+          <li><b>Тип Boolean</b> допустим для MQTT-links: значения приводятся согласно <code>map</code> (напр. <code>true/false</code> ↔ <code>on/off</code>).</li>
+          <li>Пример (из WLED):</li>
+        </ul>
+        <pre><code>{
+  "type": "Brightness",
+  "link": [{
+    "type": "Integer",
+    "topicGet": "wled/(1)/g",
+    "topicSet": "wled/(1)",
+    "inFunc": "(((parseInt(value) - 0)/(255 - 0)*100).toFixed(0))",
+    "outFunc": "(((parseInt(value)/100)*(255 - 0)).toFixed(0))"
+  }]
+}</code></pre>
+        <hr>
+        <h5>ModBus</h5>
+        <ul>
+          <li><b>address</b>, <b>function</b> (<code>Coil</code> | <code>Discrete</code> | <code>Holding</code> | <code>Input</code>), <b>length</b> (опц.), <b>scale</b> (опц.), <b>pollingTime</b> (мс).</li>
+          <li>Поддержка <b>init</b> для чтения <code>modelId/firmware</code> и базовой инициализации.</li>
+          <li>Пример:</li>
+        </ul>
+        <pre><code>{
+  "type": "CurrentTemperature",
+  "link": [{
+    "address": 3,
+    "function": "Holding",
+    "scale": 0.01,
+    "pollingTime": 1000
+  }]
+}</code></pre>
+        <hr>
+        <h5>ZigBee</h5>
+        <ul>
+          <li><b>endpoint</b>, <b>cluster</b>, <b>attribute</b>; дополнительно встречаются <b>manufacturerCode</b>, <b>zclDataType</b>, <b>bind</b>, <b>report</b>, <b>source</b>, <b>scale</b>.</li>
+          <li>В <b>init</b> возможны ZCL‑команды/чтения с массивом <code>zcl</code>.</li>
+          <li><b>template</b>: подключение базовых подшаблонов (см. SONOFF <code>S60ZBTPF</code>).</li>
+        </ul>
+        <hr>
+        <h5>Z‑Wave</h5>
+        <ul>
+          <li><b>class</b> (Command Class), <b>value</b> (идентификатор/путь значения), <b>param</b> (единица/тип при чтении Meter и т.п.).</li>
+          <li>В <b>init</b> используются <b>association</b> для настройки Lifeline и групп.</li>
+          <li><b>options</b> часто содержат параметры устройства с полями <b>id</b>, <b>size</b>, <b>unit</b>, <b>values</b> (справочники).</li>
+        </ul>
+        <hr>
+        <h5>Xiaomi</h5>
+        <ul>
+          <li><b>id</b> (device id), <b>getProp</b>, <b>setProp</b> — свойства протокола MIIO. Дополнительно возможны <b>scale</b> и <b>map</b> для приведения единиц/состояний.</li>
+        </ul>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-shuffle"></i> Изменение значений: map / inFunc / outFunc</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <ul>
+          <li><b>map</b> поддерживает:
+            <ul>
+              <li>мульти‑значения через «;»: например <code>{ "0": "0;3", "1": "1;2" }</code> — несколько значений протокола сводятся к одному значению характеристики.</li>
+              <li>диапазоны через «X~Y»: например <code>{ "FILTER_OK": "31~9999999", "CHANGE_FILTER": "0~30" }</code>.</li>
+            </ul>
+          </li>
+          <li><b>inFunc</b> и <b>outFunc</b> — это выражения на JavaScript. Входящее значение доступно в переменной <code>value</code>; результатом должно быть преобразованное значение.
+            <ul>
+              <li>Пример <b>inFunc</b>: <code>value === "" ? 0 : 1</code> — строка ошибки превращается в флаг.</li>
+              <li>Пример <b>inFunc</b> с JSON: <code>JSON.parse(value).brightness</code>.</li>
+              <li>Пример <b>outFunc</b>: <code>JSON.stringify({brightness: value})</code> — упаковка для записи.</li>
+            </ul>
+          </li>
+        </ul>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-sliders-h"></i> Поля характеристик и опций</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <ul>
+          <li><b>type</b> (обяз.), <b>name</b> (опц.), <b>description</b> (опц.), <b>unit</b> (опц.).</li>
+          <li>Ограничения/формат: <b>minValue</b>, <b>maxValue</b>, <b>minStep</b>, <b>validValues</b>, <b>write</b>.</li>
+          <li><b>option</b> (опц.): пометка второстепенных/настраиваемых характеристик.</li>
+          <li><b>visible</b> (опц.): скрытие сервисов/характеристик от UI.</li>
+          <li><b>data</b> (опц.): дополнительные параметры для логик/визуализации (напр. <code>{ Inversed: true }</code>).</li>
+          <li><b>options</b> (верхнего уровня): поддерживают все поля <b>link</b> как у характеристик, а также <b>value</b> (начальное), <b>values</b> (справочник), <b>inputType</b> (<code>STATUS</code>, <code>BUTTON</code>), <b>init</b>, <b>visible</b>, <b>write</b>.</li>
+        </ul>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-code"></i> Примеры из реальных шаблонов</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <p><b>MQTT / Wiren Board:</b> детектор протечки и статус обрыва провода.</p>
+        <pre><code>{
+  "modelId": "/devices/(ensystec_leak_protect_[0-9]{1,3})/controls/(input_([1-9]0?))/meta/type",
+  "characteristics": [
+    { "type":"LeakDetected", "link":[{ "type":"Integer", "topicGet":"/devices/(1)/controls/(2)" }] },
+    { "type":"StatusFault", "link":[{ "type":"Integer", "topicGet":"/devices/(1)/controls/(2)_open_circuit" }] }
+  ]
+}</code></pre>
+        <p><b>ZigBee / SONOFF S60ZBTPF:</b> чтение ZCL‑атрибутов с указанием <code>manufacturerCode</code>, включение отчётности (<code>bind/report</code>), привязка измерений.</p>
+        <p><b>Z‑Wave / Heltun HE‑HT01:</b> <code>init</code> с ассоциациями, ссылки вида <code>{ class: "Meter", value: "Electric", param: "kWh" }</code>, параметры в <code>options</code> с <code>id</code>/<code>size</code>.</p>
+        <p><b>Xiaomi / Air Purifier:</b> <code>getProp</code>/<code>setProp</code>, картирование <code>on/off</code>, масштабирование температур через <code>scale</code>.</p>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-seedling"></i> Как составить шаблон (пошагово, без кода)</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <ol>
+          <li><b>Определите тип контроллера</b>: MQTT, ModBus, ZigBee, Z‑Wave или Xiaomi. Это видно по устройству/интеграции.</li>
+          <li><b>Найдите похожий шаблон</b> в <code>/sht/editor/templates/main/Templates</code> и откройте его в редакторе.</li>
+          <li><b>Заполните верхний уровень</b>: производитель, модель, <b>modelId</b> (для MQTT — путь топика с шаблоном; для остальных — статический идентификатор).</li>
+          <li><b>Опишите сервисы</b>: добавьте один или несколько сервисов (лампа, термостат, датчик). Список типов смотрите в редакторе «Типы сервисов».</li>
+          <li><b>Добавьте характеристики</b> в каждый сервис: состояние (On), числовые значения (температура, скорость), режимы (validValues). Если значение должно записываться — оставьте <code>write: true</code> (по умолчанию) и укажите диапазон.</li>
+          <li><b>Привяжите значения через link</b>:
+            <ul>
+              <li><b>MQTT</b>: используйте <code>topicGet</code>/<code>topicSet</code>, при необходимости — <code>map</code> (замена строк) и простые формулы в <code>inFunc/outFunc</code>.</li>
+              <li><b>ModBus</b>: укажите <code>address</code> и <code>function</code>, при необходимости <code>scale</code>.</li>
+              <li><b>ZigBee</b>: укажите <code>endpoint</code>, <code>cluster</code>, <code>attribute</code>.</li>
+              <li><b>Z‑Wave</b>: укажите <code>class</code> и <code>value</code> (а для показаний энергии — <code>param</code>).</li>
+              <li><b>Xiaomi</b>: используйте <code>getProp</code>/<code>setProp</code>.</li>
+            </ul>
+          </li>
+          <li><b>Добавьте опции</b> (по желанию): переключатели, списки, статусы. При необходимости задайте <code>inputType</code> (например, <code>STATUS</code> или <code>BUTTON</code>).</li>
+          <li><b>Сохраните и проверьте</b>: нажмите «Исправить под требования Sprut.hub», затем «Валидировать». При ошибках — следуйте подсказкам и исправьте.</li>
+          <li><b>Скачайте JSON</b> и загрузите на хаб. Если поведение не совпадает — скорректируйте <code>map</code> или диапазоны.</li>
+        </ol>
+        <p>Советы: начинайте с минимального рабочего шаблона (1 сервис, 1‑2 характеристики). Постепенно добавляйте остальное, валидируя на каждом шаге.</p>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-fingerprint"></i> Идентификация устройств</h2>
+      <p>
+        Для <b>MQTT</b> <b>modelId</b> — путь топика с regex, группы используются как <code>(1)</code>, <code>(2)</code> далее в <code>topicGet</code>/<code>topicSet</code>. Пример Keenetic: <code>modelId: "/keen/(.*)/(LanDevice-[0-9]{1,2})"</code> и ссылки вида <code>"/keen/(1)/(2)"</code>.
+        Для <b>ZigBee</b>, <b>Z‑Wave</b>, <b>ModBus</b>, <b>Xiaomi</b> — <b>modelId</b> статичен (напр. <code>"S60ZBTPF"</code> или <code>"0004:0001"</code>), а привязки осуществляются через соответствующие поля контроллеров без использования топиков/regex.
+      </p>
+    </section>
+
+    
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-sliders"></i> Options (настройки устройства)</h2>
+      <p>
+        Опции оформляются как элементы массива <b>options</b> и поддерживают те же <b>link</b>, что и характеристики. 
+        Дополнительно доступны: <b>value</b> (начальное значение), <b>values</b> (справочник со списком <code>{value,name,description}</code>), <b>inputType</b> (<code>STATUS</code>, <code>BUTTON</code>), <b>init</b> (читать/установить при старте), <b>visible</b>, <b>write</b>.
+      </p>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-wand-magic-sparkles"></i> Рекомендации по созданию</h2>
+      <ul>
+        <li>Начните с аналогичного шаблона из раздела <code>/sht/editor/templates/main/Templates</code> и адаптируйте <b>modelId</b> и <b>link</b>.</li>
+        <li>Для MQTT используйте <b>map</b>/<b>outMap</b> для согласования значений (напр. <code>true/false</code> ↔ <code>ON/OFF</code>), см. пример на вики «Пример написания шаблонов MQTT».</li>
+        <li>Диапазоны <b>minValue</b>/<b>maxValue</b>/<b>minStep</b> и <b>validValues</b> задавайте согласно фактическим возможностям устройства.</li>
+        <li>Поля контроллеров и требования см. также в редакторе в файлах <code>controller_link_fields.json</code> и <code>sh_types.json</code>.</li>
+        <li>Для новых устройств без каталога оставляйте <b>catalogId</b> пустым.</li>
+      </ul>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-check-circle"></i> Валидация и автокоррекция</h2>
+      <p>
+        Используйте веб‑редактор: «Исправить под требования Sprut.hub», затем «Валидировать». Для массовых архивов поддерживаются ZIP/TAR.GZ.
+      </p>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-link"></i> Ссылки</h2>
+      <ul>
+        <li><a href="https://wiki.spruthub.ru/%D0%A7%D1%82%D0%BE_%D1%82%D0%B0%D0%BA%D0%BE%D0%B5_%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D1%8B%3F">Что такое шаблоны?</a></li>
+        <li><a href="https://wiki.spruthub.ru/%D0%A1%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5_%D0%BA%D0%B0%D1%81%D1%82%D0%BE%D0%BC%D0%BD%D0%BE%D0%B3%D0%BE_%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0_%D0%BD%D0%B0_%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D1%80%D0%B5_ESP">Пример MQTT</a></li>
+        <li><a href="https://wiki.spruthub.ru/%D0%A1%D0%BF%D0%B8%D1%81%D0%BE%D0%BA_%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D0%BC%D1%8B%D1%85_%D0%B8_%D0%BD%D0%B5_%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D0%BC%D1%8B%D1%85_%D0%BF%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB%D0%BE%D0%B2_%D0%B8_%D1%8D%D0%BA%D0%BE%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BC">Поддерживаемые платформы</a></li>
+        <li><a href="https://github.com/sprut/Hub/issues">Запросы на создание шаблонов</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-6"><h5>Следить за обновлениями</h5><p>Telegram: <a href="https://t.me/smart_sputnik" class="custom-link-blue">Умный Спутник</a></p></div>
+        <div class="col-md-6 text-md-end"><h5>Поддержать автора</h5><p><a href="https://boosty.to/smart_kirill" class="custom-link-blue">Boosty</a></p></div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
+

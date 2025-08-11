@@ -83,8 +83,12 @@ function renderServiceTypes(services) {
         return;
     }
     
-    // Sort services by name alphabetically
-    const sortedServices = services.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    // Sort services by name alphabetically (do not mutate original array)
+    const sortedServices = [...services].sort((a, b) => {
+        const aName = (a && a.name) ? a.name : '';
+        const bName = (b && b.name) ? b.name : '';
+        return aName.localeCompare(bName, 'ru');
+    });
     
     const servicesHtml = sortedServices.map(service => createServiceItem(service)).join('');
     listContainer.innerHTML = servicesHtml;

@@ -10,7 +10,8 @@ window.addEventListener('DOMContentLoaded', function () {
         indentUnit: 2,
         foldGutter: true,
         gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
-        viewportMargin: Infinity,
+        // Убираем Infinity, оставляем разумное значение для производительности
+        viewportMargin: 30,
         extraKeys: {
             'Ctrl-F': 'find',
             'Cmd-F': 'find',
@@ -47,10 +48,54 @@ window.addEventListener('DOMContentLoaded', function () {
         window.editor.refresh();
     }
 
+    // Восстановление позиции курсора и скролла после перезагрузки
+    (function restoreCursorAndScroll() {
+        try {
+            const posRaw = localStorage.getItem('jsonEditorCursorPos');
+            const scrollRaw = localStorage.getItem('jsonEditorScroll');
+            if (!posRaw && !scrollRaw) return;
+            const lineCount = window.editor.lineCount();
+            let targetPos = null;
+            if (posRaw) {
+                const pos = JSON.parse(posRaw);
+                const safeLine = Math.max(0, Math.min(lineCount - 1, pos.line || 0));
+                const lineLen = (window.editor.getLine(safeLine) || '').length;
+                const safeCh = Math.max(0, Math.min(lineLen, pos.ch || 0));
+                targetPos = { line: safeLine, ch: safeCh };
+            }
+            const apply = () => {
+                if (targetPos) {
+                    window.__suppressCursorPathUpdate = true;
+                    window.editor.setCursor(targetPos);
+                    window.editor.focus();
+                    setTimeout(() => { window.__suppressCursorPathUpdate = false; updateCursorPathMap(); }, 0);
+                }
+                if (scrollRaw) {
+                    const s = JSON.parse(scrollRaw);
+                    if (s && (typeof s.left === 'number' || typeof s.top === 'number')) {
+                        window.editor.scrollTo(s.left || 0, s.top || 0);
+                    }
+                }
+            };
+            // Небольшая задержка, чтобы CodeMirror успел отрисоваться
+            setTimeout(apply, 0);
+        } catch (_) {}
+    })();
+
     // Сохранять значение при каждом изменении
     window.editor.on('change', function () {
         localStorage.setItem('jsonEditorValue', window.editor.getValue());
     });
+
+    // Сохранять позицию курсора и скролл
+    const persistCursorAndScroll = window.debounce(function() {
+        try {
+            const cur = window.editor.getCursor();
+            localStorage.setItem('jsonEditorCursorPos', JSON.stringify(cur));
+            const s = window.editor.getScrollInfo();
+            localStorage.setItem('jsonEditorScroll', JSON.stringify({ left: s.left, top: s.top }));
+        } catch (_) {}
+    }, 150);
 
     // Автоматический запуск автокомплита при вводе определенных символов
     window.editor.on('keyup', function (cm, event) {
@@ -181,14 +226,14 @@ window.addEventListener('DOMContentLoaded', function () {
             result = walk(schema);
         }
 
-        // Добавляем определения из $defs как отдельные секции
-        if (schema.$defs) {
-            for (const defName in schema.$defs) {
-                const def = schema.$defs[defName];
-                if (def.properties) {
-                    result[defName] = walk(def);
-                }
-            }
+        // Явное описание общих структур массива сервисов и характеристик
+        // services -> массив объектов сервисов
+        if (schema && schema.properties && schema.properties.services && schema.properties.services.items) {
+            result.services = walk(schema.properties.services.items);
+        }
+        // characteristics -> массив объектов характеристик внутри сервиса
+        if (schema && schema.$defs && schema.$defs.characteristic) {
+            result.characteristics = walk(schema.$defs.characteristic);
         }
 
         return result;
@@ -341,10 +386,63 @@ window.addEventListener('DOMContentLoaded', function () {
     // --- Drag & Drop ---
     window.initDragAndDrop();
 
+    // --- Тема ---
+    if (typeof window.initTheme === 'function') {
+        window.initTheme();
+    }
+
+    // --- Контекстное меню ---
+    if (typeof window.initContextMenu === 'function') {
+        window.initContextMenu();
+    }
+
     // --- Инициализация панели инструментов ---
     window.initEditorToolbar();
 
-    // --- Сохранение позиции курсора при изменениях ---
+    // --- Мобильный long-press для контекстного меню ---
+    (function enableLongPressContextMenu(){
+        if (!window.editor) return;
+        const el = window.editor.getWrapperElement();
+        let pressTimer = null;
+        let startX = 0, startY = 0;
+        const threshold = 550; // мс удержания
+        const moveTolerance = 10; // px
+
+        const clearTimer = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+        const onTouchStart = (e) => {
+            try {
+                const t = e.touches && e.touches[0] ? e.touches[0] : null;
+                if (!t) return;
+                startX = t.clientX; startY = t.clientY;
+                clearTimer();
+                pressTimer = setTimeout(() => {
+                    try {
+                        if (typeof window.updateContextMenuVisibility === 'function') window.updateContextMenuVisibility();
+                        if (typeof window.showContextMenu === 'function') window.showContextMenu(startX, startY, e);
+                        // Накрываем overlay, чтобы закрыть по тапу
+                        const overlay = document.createElement('div');
+                        overlay.className = 'cm-hold-gesture-overlay';
+                        overlay.addEventListener('touchend', ()=>{ try { if (typeof window.hideContextMenu === 'function') window.hideContextMenu(); } catch(_){} overlay.remove(); }, { passive: true });
+                        document.body.appendChild(overlay);
+                    } catch(_) {}
+                }, threshold);
+            } catch(_) {}
+        };
+        const onTouchMove = (e) => {
+            const t = e.touches && e.touches[0] ? e.touches[0] : null;
+            if (!t) return;
+            const dx = Math.abs(t.clientX - startX);
+            const dy = Math.abs(t.clientY - startY);
+            if (dx > moveTolerance || dy > moveTolerance) clearTimer();
+        };
+        const onTouchEnd = () => clearTimer();
+        el.addEventListener('touchstart', onTouchStart, { passive: true });
+        el.addEventListener('touchmove', onTouchMove, { passive: true });
+        el.addEventListener('touchend', onTouchEnd, { passive: true });
+        el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    })();
+
+    // --- Сохранение позиции курсора при изменениях + кликабельные крошки пути ---
     function updateCursorPathMap() {
         const mapDiv = document.getElementById('cursorPathMap');
         if (!mapDiv) return;
@@ -478,13 +576,157 @@ window.addEventListener('DOMContentLoaded', function () {
                 i++;
             }
         }
-        mapDiv.textContent = result.join(' > ');
+        // Рендерим кликабельные крошки с точной навигацией по сформированному пути
+        mapDiv.innerHTML = '';
+        const frag = document.createDocumentFragment();
+        const makeCrumb = (label, onClick) => {
+            const span = document.createElement('span');
+            span.textContent = label;
+            span.style.cursor = onClick ? 'pointer' : 'default';
+            if (onClick) span.addEventListener('click', onClick);
+            return span;
+        };
+        const sep = () => {
+            const s = document.createElement('span');
+            s.textContent = ' > ';
+            s.style.opacity = '0.6';
+            return s;
+        };
+
+        const anchor = window.lastCursorPosition || { line: 0, ch: 0 };
+
+        // Находит позицию начала первого ключа (первой кавычки) начиная с заданной строки вниз
+        function findFirstKeyPos(startLine) {
+            const lc = window.editor.lineCount();
+            const maxScan = Math.min(lc, startLine + 100);
+            for (let i = startLine; i < maxScan; i++) {
+                const text = window.editor.getLine(i) || '';
+                // пропускаем пустые и строки с только скобками/знаками
+                if (/^\s*[\{\}\[\]\}\,]*\s*$/.test(text)) continue;
+                const idx = text.indexOf('"');
+                if (idx >= 0) return { line: i, ch: idx };
+                const nonSpace = text.search(/\S/);
+                if (nonSpace >= 0) return { line: i, ch: nonSpace };
+            }
+            return { line: Math.max(0, startLine), ch: 0 };
+        }
+        const crumbPaths = [];
+        // root path (не используется для вычислений, сохраняем структуру массивов)
+        crumbPaths.push('');
+
+        // Накопители индексов для построения путей
+        let lastServiceIndex = null;
+        let lastCharIndex = null;
+        let lastOptionIndex = null;
+
+        // Пробегаем фактический path, формируя crumbPaths синхронно с result
+        for (let i = 0; i < path.length; i++) {
+            const key = path[i];
+            if (key === 'services' && typeof path[i + 1] === 'number') {
+                lastServiceIndex = path[i + 1];
+                lastCharIndex = null;
+                crumbPaths.push(`services[${lastServiceIndex}]`);
+                i += 1;
+                continue;
+            }
+            if (key === 'characteristics' && typeof path[i + 1] === 'number' && lastServiceIndex != null) {
+                lastCharIndex = path[i + 1];
+                crumbPaths.push(`services[${lastServiceIndex}].characteristics[${lastCharIndex}]`);
+                i += 1;
+                continue;
+            }
+            if (key === 'options' && typeof path[i + 1] === 'number') {
+                lastOptionIndex = path[i + 1];
+                lastCharIndex = null;
+                crumbPaths.push(`options[${lastOptionIndex}]`);
+                i += 1;
+                continue;
+            }
+            if (key === 'link' && typeof path[i + 1] === 'number') {
+                const linkIdx = path[i + 1];
+                if (lastServiceIndex != null && lastCharIndex != null) {
+                    crumbPaths.push(`services[${lastServiceIndex}].characteristics[${lastCharIndex}].link[${linkIdx}]`);
+                } else if (lastOptionIndex != null) {
+                    crumbPaths.push(`options[${lastOptionIndex}].link[${linkIdx}]`);
+                } else {
+                    crumbPaths.push(`link[${linkIdx}]`);
+                }
+                i += 1;
+                continue;
+            }
+        }
+
+        // root — возвращаемся к позиции, где были (якорь)
+        frag.appendChild(makeCrumb(result[0] || 'root', () => {
+            window.__suppressCursorPathUpdate = true;
+            window.editor.scrollIntoView(anchor, 100);
+            window.editor.setCursor(anchor);
+            window.editor.focus();
+            // Обновляем сохранённые координаты курсора и путь
+            try {
+                window.lastCursorPosition = anchor;
+                window.lastCursorPath = window.getCurrentJsonPath(window.editor);
+            } catch(_) {}
+            setTimeout(() => {
+                window.__suppressCursorPathUpdate = false;
+                updateCursorPathMap();
+                if (typeof window.updateToolbarButtonsVisibility === 'function') window.updateToolbarButtonsVisibility();
+            }, 0);
+        }));
+
+        for (let i = 1; i < result.length; i++) {
+            frag.appendChild(sep());
+            const label = result[i];
+            const hlPath = crumbPaths[i] || '';
+            frag.appendChild(makeCrumb(label, () => {
+                // Переходим к выбранному элементу без гонок обновления карты пути
+                try {
+                    window.__suppressCursorPathUpdate = true;
+                    const jsonStr = window.editor.getValue();
+                    if (typeof window.highlightErrorLine === 'function') {
+                        const line = window.highlightErrorLine(hlPath, jsonStr);
+                        if (line && line > 0) {
+                            const targetLine = line - 1;
+                            const pos = findFirstKeyPos(targetLine);
+                            window.editor.scrollIntoView(pos, 100);
+                            window.editor.setCursor(pos);
+                            window.editor.focus();
+                            try { window.editor.removeLineClass(targetLine, 'background', 'error-line'); } catch (_) {}
+                            // Обновляем сохранённые координаты курсора и путь
+                            try {
+                                window.lastCursorPosition = pos;
+                                window.lastCursorPath = window.getCurrentJsonPath(window.editor);
+                            } catch(_) {}
+                        } else {
+                            window.editor.scrollIntoView(anchor, 100);
+                            window.editor.setCursor(anchor);
+                            window.editor.focus();
+                            try {
+                                window.lastCursorPosition = anchor;
+                                window.lastCursorPath = window.getCurrentJsonPath(window.editor);
+                            } catch(_) {}
+                        }
+                    }
+                } finally {
+                    setTimeout(() => {
+                        window.__suppressCursorPathUpdate = false;
+                        updateCursorPathMap();
+                        if (typeof window.updateToolbarButtonsVisibility === 'function') window.updateToolbarButtonsVisibility();
+                    }, 0);
+                }
+            }));
+        }
+        mapDiv.appendChild(frag);
     }
 
+    window.__suppressCursorPathUpdate = window.__suppressCursorPathUpdate || false;
+
     window.editor.on('cursorActivity', function () {
+        if (window.__suppressCursorPathUpdate) return;
         window.lastCursorPosition = window.editor.getCursor();
         window.lastCursorPath = window.getCurrentJsonPath(window.editor);
         updateCursorPathMap();
+        persistCursorAndScroll();
         // Обновляем видимость кнопок тулбара
         if (typeof window.updateToolbarButtonsVisibility === 'function') {
             window.updateToolbarButtonsVisibility();
@@ -492,9 +734,11 @@ window.addEventListener('DOMContentLoaded', function () {
     });
 
     window.editor.on('focus', function () {
+        if (window.__suppressCursorPathUpdate) return;
         window.lastCursorPosition = window.editor.getCursor();
         window.lastCursorPath = window.getCurrentJsonPath(window.editor);
         updateCursorPathMap();
+        persistCursorAndScroll();
         // Обновляем видимость кнопок тулбара
         if (typeof window.updateToolbarButtonsVisibility === 'function') {
             window.updateToolbarButtonsVisibility();
@@ -653,17 +897,18 @@ window.addEventListener('DOMContentLoaded', function () {
 
             // Специальная обработка для services
             if (p === 'services') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.service && window.schema.$defs.service.properties) {
-                    node = window.schema.$defs.service.properties;
-                    continue; // Продолжаем навигацию
+                // Используем items описания services
+                if (window.schema && window.schema.properties && window.schema.properties.services && window.schema.properties.services.items) {
+                    node = window.buildSchemaHintsTree(window.schema.properties.services.items);
+                    continue;
                 }
             }
 
             // Специальная обработка для characteristics
             if (p === 'characteristics') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.characteristic && window.schema.$defs.characteristic.properties) {
-                    node = window.schema.$defs.characteristic.properties;
-                    continue; // Продолжаем навигацию
+                if (window.schema && window.schema.$defs && window.schema.$defs.characteristic) {
+                    node = window.buildSchemaHintsTree(window.schema.$defs.characteristic);
+                    continue;
                 }
             }
 
@@ -1448,5 +1693,948 @@ window.addEventListener('DOMContentLoaded', function () {
     if (typeof window.setupEditorContextMenu === 'function') {
         window.setupEditorContextMenu();
     }
+
+    // --- Wizard runtime ---
+    (function initWizard() {
+        const dlg = document.getElementById('wizardDialog');
+        if (!dlg) return;
+        const titleEl = document.getElementById('wizardTitle');
+        const bodyEl = document.getElementById('wizardBody');
+        const footerEl = document.getElementById('wizardFooter');
+        const backBtn = document.getElementById('wizardBackBtn');
+        const closeBtn = document.getElementById('wizardCloseBtn');
+        const prevBtn = document.getElementById('wizardPrevBtn');
+        const nextBtn = document.getElementById('wizardNextBtn');
+        const doneBtn = document.getElementById('wizardDoneBtn');
+
+        const LS_KEY = 'wizardProgressV1';
+        const defaultState = {
+            step: 0,
+            controller: '',
+            inProgress: false,
+            template: { manufacturer: '', model: '', manufacturerId: '', modelId: '', catalogId: 0, services: [], options: [] },
+            selectedServices: [],
+            serviceIdx: 0
+        };
+        let state = { ...defaultState };
+        // Экспортные режимы открытия отдельных шагов визарда
+        let externalMode = null; // 'addService' | 'addCharacteristics' | 'addLink' | 'addOption'
+        let externalCallback = null;
+        function finishExternal(payload) {
+            try { if (typeof externalCallback === 'function') externalCallback(payload); } catch {}
+            try { localStorage.removeItem(LS_KEY); } catch {}
+            externalMode = null; externalCallback = null; resetState(); close();
+        }
+
+        function saveState() {
+            if (externalMode) return; // при запуске через кнопки добавления не сохраняем в LS
+            try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+        }
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(LS_KEY);
+                if (raw) state = { ...defaultState, ...JSON.parse(raw) };
+            } catch {}
+        }
+        function resetState() {
+            state = { ...defaultState };
+            // не сохраняем пустое состояние, очищаем сохранённые данные
+            try { localStorage.removeItem(LS_KEY); } catch {}
+        }
+        function open() { dlg.style.display = 'flex'; }
+        function close() { dlg.style.display = 'none'; }
+
+        // Прокрутка наверх при смене шага
+        function scrollWizardTop() {
+            try { bodyEl.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { bodyEl.scrollTop = 0; }
+        }
+
+        window.startTemplateWizard = function(controllerValue) {
+            loadState();
+            if (controllerValue) state.controller = controllerValue;
+            state.inProgress = true;
+            if (typeof state.step !== 'number' || state.step < 0) state.step = 0;
+            saveState();
+            render();
+            open();
+        };
+
+        // Автооткрытие если был прогресс
+        try {
+            const rawSaved = localStorage.getItem(LS_KEY);
+            if (rawSaved) {
+                const saved = JSON.parse(rawSaved);
+                if (saved && saved.inProgress === true && typeof saved.step === 'number' && saved.step >= 0) {
+                    state = { ...defaultState, ...saved };
+                    render();
+                    open();
+                }
+            }
+        } catch {}
+
+        function render() {
+            backBtn.style.display = '';
+            prevBtn.style.display = state.step > 0 ? '' : 'none';
+            doneBtn.style.display = 'none';
+            nextBtn.style.display = '';
+            if (state.step === 0) renderTemplateMeta();
+            else if (state.step === 1) renderServiceSelect();
+            else if (state.step === 2) renderServiceForm();
+            else if (state.step === 3) renderCharacteristicsSelect();
+            else if (state.step === 4) renderCharacteristicsForms();
+            else if (state.step === 5) renderOptionsStep();
+        }
+
+        // Публичные функции для запуска отдельных сценариев визарда
+        window.startWizardAddService = function(onDone) {
+            loadState();
+            externalMode = 'addService';
+            externalCallback = onDone;
+            state = { ...defaultState, step: 1, inProgress: false, controller: document.getElementById('controllerSelect')?.value || '' };
+            render(); open();
+        };
+        window.startWizardAddCharacteristics = function(serviceType, onDone) {
+            if (!serviceType) return;
+            loadState();
+            externalMode = 'addCharacteristics';
+            externalCallback = onDone;
+            state = { ...defaultState, step: 3, inProgress: false, controller: document.getElementById('controllerSelect')?.value || '' };
+            state.template.services = [{ name: '', type: serviceType, visible: true, characteristics: [] }];
+            state.serviceIdx = 0;
+            render(); open();
+        };
+        window.startWizardAddLink = function(serviceType, characteristicType, onDone) {
+            if (!serviceType || !characteristicType) return;
+            loadState();
+            externalMode = 'addLink';
+            externalCallback = onDone;
+            state = { ...defaultState, step: 4, inProgress: false, controller: document.getElementById('controllerSelect')?.value || '' };
+            state.template.services = [{ name: '', type: serviceType, visible: true, characteristics: [{ type: characteristicType, link: [] }] }];
+            state.serviceIdx = 0;
+            render(); open();
+        };
+        window.startWizardAddOption = function(onDone) {
+            loadState();
+            externalMode = 'addOption';
+            externalCallback = onDone;
+            open();
+            // отрисуем сразу форму новой опции
+            renderOptionWizard();
+        };
+
+        function renderTemplateMeta() {
+            titleEl.textContent = 'Данные шаблона';
+            const isMQTT = (state.controller||'')==='MQTT';
+            const manuRow = `<div class='form-row'><label>Производитель</label><input id='w_manu' type='text' value='${state.template.manufacturer || ''}' /></div>`;
+            const modelRow = `<div class='form-row'><label>Модель</label><input id='w_model' type='text' value='${state.template.model || ''}' /></div>`;
+            const manuIdRow = isMQTT ? '' : `<div class='form-row'><label>manufacturerId</label><input id='w_manuId' type='text' value='${state.template.manufacturerId || ''}' /></div>`;
+            const modelIdRow = `<div class='form-row'><label>modelId <span class='help-icon' ${isMQTT?`data-tip='Топик для поиска устройства. Должен содержать регулярное выражение'`:"style=\"display:none;\""}>?</span></label><input id='w_modelId' type='text' value='${state.template.modelId || ''}' /></div>`;
+            const catalogIdRow = `<div class='form-row'><label>catalogId <span class='help-icon' data-tip='Идентификатор устройства в каталоге https://sprut.ai/catalog'>?</span></label><input id='w_catalogId' type='number' value='${state.template.catalogId || 0}' /></div>`;
+            bodyEl.innerHTML = manuRow + modelRow + manuIdRow + modelIdRow + catalogIdRow;
+            nextBtn.onclick = () => {
+                state.template.manufacturer = document.getElementById('w_manu').value.trim();
+                state.template.model = document.getElementById('w_model').value.trim();
+                if (!isMQTT) state.template.manufacturerId = document.getElementById('w_manuId').value.trim(); else delete state.template.manufacturerId;
+                state.template.modelId = document.getElementById('w_modelId').value.trim();
+                state.template.catalogId = parseInt(document.getElementById('w_catalogId').value, 10) || 0;
+                state.step = 1; saveState(); scrollWizardTop(); render();
+            };
+        }
+
+        function renderServiceSelect() {
+            titleEl.textContent = 'Выбор сервисов';
+            const servicesAll = (window.shTypes || []).slice().sort((a, b) => (a.name||'').localeCompare(b.name||'', 'ru'));
+            bodyEl.innerHTML = `<div class='section-title'>Отметьте сервисы</div>
+                <div class='form-row'><input id='w_svc_search' type='text' placeholder='Поиск по названию или типу...'/></div>
+                <div id='w_svc_list'></div>`;
+            const listEl = document.getElementById('w_svc_list');
+            const searchEl = document.getElementById('w_svc_search');
+            function renderList(filter='') {
+                const q = filter.trim().toLowerCase();
+                const services = q ? servicesAll.filter(s => (s.name||'').toLowerCase().includes(q) || (s.type||'').toLowerCase().includes(q)) : servicesAll;
+                const items = services.map((s) => {
+                    const checked = state.selectedServices.includes(s.type) ? 'checked' : '';
+                    return `<div class='service-block'>
+                        <label><input type='checkbox' data-type='${s.type}' ${checked}/> ${s.name || s.type} <span style='opacity:.6'>(${s.type})</span></label>
+                    </div>`;
+                }).join('');
+                listEl.innerHTML = items || '<div>Ничего не найдено</div>';
+                listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.addEventListener('change', () => {
+                        const t = cb.getAttribute('data-type');
+                        if (cb.checked) { if (!state.selectedServices.includes(t)) state.selectedServices.push(t); }
+                        else { state.selectedServices = state.selectedServices.filter(x => x !== t); }
+                        saveState();
+                    });
+                });
+                // Полоска сервиса кликабельна целиком
+                listEl.querySelectorAll('.service-block').forEach(block => {
+                    block.addEventListener('click', (e) => {
+                        if (e.target.closest('input') || e.target.closest('label')) return; // стандартное поведение
+                        const cb = block.querySelector('input[type="checkbox"]');
+                        if (!cb) return;
+                        cb.checked = !cb.checked;
+                        cb.dispatchEvent(new Event('change', { bubbles: true }));
+                    });
+                });
+            }
+            renderList();
+            searchEl.addEventListener('input', () => renderList(searchEl.value));
+            nextBtn.onclick = () => {
+                if (!state.selectedServices.length) { window.showToast('Выберите хотя бы один сервис', 'warning'); return; }
+                // Сформировать пустые сервисы в шаблоне (visible по умолчанию true)
+                state.template.services = state.selectedServices.map(t => ({ name: '', type: t, visible: true, characteristics: [], logics: [] }));
+                state.serviceIdx = 0;
+                state.step = 2; saveState(); scrollWizardTop(); render();
+            };
+            prevBtn.onclick = () => { state.step = 0; saveState(); render(); };
+        }
+
+        function renderServiceForm() {
+            const svc = state.template.services[state.serviceIdx];
+            const svcDef = (window.shTypes||[]).find(s=>s.type===svc.type);
+            const svcNameRu = (svcDef && svcDef.name) ? svcDef.name : svc.type;
+            titleEl.textContent = `Параметры сервиса ${svcNameRu} (${state.serviceIdx+1}/${state.template.services.length})`;
+            const logicEnum = (window.schema && window.schema.$defs && window.schema.$defs.logics && window.schema.$defs.logics.properties && window.schema.$defs.logics.properties.type && window.schema.$defs.logics.properties.type.enum) ? window.schema.$defs.logics.properties.type.enum : [];
+            const selectedLogic = new Set((svc.logics||[]).map(l=>l.type));
+            const logicHtml = logicEnum.length ? `<div class='section-title' id='w_logic_toggle' style='cursor:pointer;user-select:none;'>Логика <span id='w_logic_arrow' style='font-size:12px;'>&#9654;</span></div>
+                <div class='service-block' id='w_logic_block' style='display:none;'>${logicEnum.map(t=>`<label style='display:block;'><input type='checkbox' data-logic='${t}' ${selectedLogic.has(t)?'checked':''}/> ${t}</label>`).join('')}</div>` : '';
+            bodyEl.innerHTML = `
+                <div class='form-row'><label>Название (name)</label><input id='w_svc_name' type='text' value='${svc.name || svcNameRu}'/></div>
+                <div class='form-row'><label>Тип (type)</label><input id='w_svc_type' type='text' value='${svc.type || ''}' disabled/></div>
+                <div class='form-row'><label>Видимый (visible)</label><input id='w_svc_visible' type='checkbox' ${svc.visible !== false ? 'checked' : ''}/></div>
+                ${logicHtml}
+            `;
+            // переключение разворота логики
+            const logicToggle = document.getElementById('w_logic_toggle');
+            const logicBlock = document.getElementById('w_logic_block');
+            const logicArrow = document.getElementById('w_logic_arrow');
+            if (logicToggle && logicBlock && logicArrow) {
+                logicToggle.addEventListener('click', () => {
+                    const isHidden = logicBlock.style.display === 'none';
+                    logicBlock.style.display = isHidden ? '' : 'none';
+                    logicArrow.innerHTML = isHidden ? '&#9660;' : '&#9654;';
+                });
+            }
+            nextBtn.onclick = () => {
+                svc.name = document.getElementById('w_svc_name').value.trim();
+                svc.visible = document.getElementById('w_svc_visible').checked;
+                const checks = Array.from(bodyEl.querySelectorAll('input[data-logic]'));
+                const selected = checks.filter(cb=>cb.checked).map(cb=>({ type: cb.getAttribute('data-logic'), active: true }));
+                svc.logics = selected.length ? selected : undefined;
+                state.step = 3; saveState(); scrollWizardTop(); render();
+            };
+            prevBtn.onclick = () => { state.step = 1; saveState(); render(); };
+        }
+
+        function renderCharacteristicsSelect() {
+            const svc = state.template.services[state.serviceIdx];
+            const def = (window.shTypes || []).find(s => s.type === svc.type) || { required: [], optional: [] };
+            const svcNameRu = def && def.name ? def.name : svc.type;
+            titleEl.textContent = `Выбор характеристик ${svc.name || ''} (${svcNameRu})`;
+            const getObj = t => (typeof t === 'object' ? t : { type: t });
+            const req = (def.required || []).map(getObj).filter(c=>c.type!=='Name');
+            const opt = (def.optional || []).map(getObj).filter(c=>c.type!=='Name');
+            // Автовыбор обязательных характеристик
+            const selected = new Set((svc.characteristics||[]).map(c=>c.type));
+            req.forEach(c => { if (!selected.has(c.type)) { selected.add(c.type); svc.characteristics.push({ type: c.type, link: [] }); } });
+            // Список всех остальных типов из shTypes, которых нет в req/opt
+            const usedTypes = new Set([...req, ...opt].map(c => c.type));
+            let globalAll = [];
+            if (Array.isArray(window.shTypes)) {
+                const seen = new Set();
+                window.shTypes.forEach(s => {
+                    (s.required||[]).forEach(t=>{ const o=getObj(t); if(o.type && !seen.has(o.type)){ seen.add(o.type); globalAll.push(o);} });
+                    (s.optional||[]).forEach(t=>{ const o=getObj(t); if(o.type && !seen.has(o.type)){ seen.add(o.type); globalAll.push(o);} });
+                });
+            }
+            const sortByName = (a, b) => {
+                const A = (a.name || a.type || '').toLowerCase();
+                const B = (b.name || b.type || '').toLowerCase();
+                return A.localeCompare(B, 'ru', { sensitivity: 'base' });
+            };
+            const others = globalAll.filter(c => !usedTypes.has(c.type) && c.type !== 'Name').sort(sortByName);
+            const reqHtml = req.map(c=>{
+                const ch = selected.has(c.type)?'checked':'';
+                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span></label></div>`;
+            }).join('');
+            const optHtml = opt.map(c=>{
+                const ch = selected.has(c.type)?'checked':'';
+                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span></label></div>`;
+            }).join('');
+            const otherToggleId = 'w_char_other_toggle';
+            const otherListId = 'w_char_other_list';
+            const otherHeader = others.length ? `<div class='section-title' id='${otherToggleId}' style='cursor:pointer;user-select:none;'>Остальные характеристики <span style='font-size:smaller;color:#888;'>(устройства с нестандартными характеристиками могут не прокидываться в другие системы)</span> <span id='${otherToggleId}-arrow' style='font-size:12px;'>&#9654;</span></div>` : '';
+            const otherItems = others.map(c=>{
+                const ch = selected.has(c.type)?'checked':'';
+                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span></label></div>`;
+            }).join('');
+            const otherBlock = others.length ? `<div id='${otherListId}' style='display:none;'>${otherItems}</div>` : '';
+            bodyEl.innerHTML = `<div class='section-title'>Обязательные</div>${reqHtml || '<div>—</div>'}
+                <div class='section-title'>Опциональные</div>${optHtml || '<div>—</div>'}
+                ${otherHeader}${otherBlock}`;
+            bodyEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const t = cb.getAttribute('data-type');
+                    if (cb.checked) {
+                        if (!svc.characteristics.some(x => x.type === t)) svc.characteristics.push({ type: t, link: [] });
+                    } else {
+                        svc.characteristics = svc.characteristics.filter(x => x.type !== t);
+                    }
+                    saveState();
+                });
+            });
+            // Клик по блоку характеристики переключает чекбокс
+            bodyEl.querySelectorAll('.char-block').forEach(block => {
+                block.addEventListener('click', (e) => {
+                    if (e.target.closest('input') || e.target.closest('label')) return;
+                    const cb = block.querySelector('input[type="checkbox"]');
+                    if (!cb) return;
+                    cb.checked = !cb.checked;
+                    cb.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            });
+            // Тогглер для "остальных"
+            const section = document.getElementById(otherToggleId);
+            const list = document.getElementById(otherListId);
+            const arrow = document.getElementById(`${otherToggleId}-arrow`);
+            if (section && list && arrow) {
+                section.addEventListener('click', ()=>{
+                    const hidden = list.style.display === 'none';
+                    list.style.display = hidden ? '' : 'none';
+                    arrow.innerHTML = hidden ? '&#9660;' : '&#9654;';
+                });
+            }
+            nextBtn.onclick = () => { state.step = 4; saveState(); scrollWizardTop(); render(); };
+            prevBtn.onclick = () => { state.step = 2; saveState(); render(); };
+        }
+
+        function renderCharacteristicsForms() {
+            const svc = state.template.services[state.serviceIdx];
+            const svcDef = (window.shTypes||[]).find(s=>s.type===svc.type);
+            const svcNameRu = (svcDef && svcDef.name) ? svcDef.name : svc.type;
+            titleEl.textContent = `Параметры характеристик (${svcNameRu})`;
+            const controller = document.getElementById('controllerSelect')?.value || state.controller;
+            const ctrlFields = (window.controllerLinkFields && controller) ? window.controllerLinkFields[controller] : null;
+            const required = ctrlFields ? (ctrlFields.required || []) : [];
+            const readField = ctrlFields ? ctrlFields.read : null;
+            const writeField = ctrlFields ? ctrlFields.write : null;
+            const makeLinkFields = () => {
+                const fields = new Set(required);
+                if (readField) fields.add(readField);
+                if (writeField) fields.add(writeField);
+                return Array.from(fields);
+            };
+            const linkTypeEnum = (window.schema && window.schema.$defs && window.schema.$defs.link && window.schema.$defs.link.properties && window.schema.$defs.link.properties.type && window.schema.$defs.link.properties.type.enum) ? window.schema.$defs.link.properties.type.enum : [];
+            const charHtml = (svc.characteristics||[]).map((c, idx) => {
+                // русское имя характеристики
+                let charDef = null;
+                if (svcDef) {
+                    const list = [...(svcDef.required||[]), ...(svcDef.optional||[])].map(x=> (typeof x==='object'?x:{type:x}));
+                    charDef = list.find(x=>x.type===c.type) || null;
+                }
+                const charNameRu = (charDef && charDef.name) ? charDef.name : c.type;
+                const baseFields = makeLinkFields();
+                // Функция получения списка validValues из sh_types (enum или validValues)
+                const getValidKeys = () => {
+                    const keys = [];
+                    if (charDef && charDef.enum && typeof charDef.enum === 'object') {
+                        for (const k of Object.keys(charDef.enum)) keys.push(k);
+                    }
+                    if (charDef && Array.isArray(charDef.validValues) && charDef.validValues.length) {
+                        charDef.validValues.forEach(v => { if (v && typeof v.key !== 'undefined') keys.push(String(v.key)); });
+                    }
+                    return Array.from(new Set(keys));
+                };
+                const validKeys = getValidKeys();
+                // Не записываем дефолтные значения из sh_types в объект характеристики.
+                // Дефолты показываем в UI (placeholder/checked), а в шаблон добавляем только изменённые пользователем.
+                // Если link отсутствует — создать пустой линк с базовыми полями
+                if (!Array.isArray(c.link) || c.link.length === 0) {
+                    const init = { type: '' };
+                    baseFields.forEach(f => { init[f] = ''; });
+                    c.link = [init];
+                }
+                const linksBlocks = (Array.isArray(c.link)?c.link:[]).map((lnk, li)=>{
+                    // для map/outMap и произвольных KV блоков создаём управляемые строки
+                    const allFields = new Set(Object.keys(lnk).filter(k=>k!=='type' && k!=='map' && k!=='outMap'));
+                    baseFields.forEach(f=>allFields.add(f));
+                    allFields.add('inFunc');
+                    allFields.add('outFunc');
+                    let rows = Array.from(allFields).map(f=>{
+                        const v = lnk[f] ?? '';
+                        return `<div class='kv-row'><label style='min-width:160px;'>${f}</label><input type='text' data-char='${idx}' data-link='${li}' data-field='${f}' value='${v}' /></div>`;
+                    }).join('');
+                    // map/outMap редактор (динамические пары)
+                    const mapPairs = lnk.map || {};
+                    const outMapPairs = lnk.outMap || {};
+                    const renderPairs = (pairs, group) => {
+                        const entries = Object.entries(pairs);
+                        const list = entries.map(([k, val], pi)=>
+                            `<div class='kv-row'><label style='min-width:160px;'>${group}[${pi}]</label><input type='text' data-char='${idx}' data-link='${li}' data-${group}-key='${pi}' value='${k}' />
+                             <input type='text' data-char='${idx}' data-link='${li}' data-${group}-val='${pi}' value='${val}' />
+                             <button class='remove-btn' data-char='${idx}' data-link='${li}' data-remove-${group}='${pi}'>−</button></div>`
+                        ).join('');
+                        const addLabel = entries.length ? 'Добавить поле' : `Добавить ${group}`;
+                        const add = `<div class='kv-row'><button class='toolbar-btn' data-char='${idx}' data-link='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
+                        return `<div class='section-title'>${group}</div>${list}${add}`;
+                    };
+                    rows += renderPairs(mapPairs, 'map');
+                    rows += renderPairs(outMapPairs, 'outMap');
+                    const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
+                        <select data-char='${idx}' data-link='${li}' data-field='type'>
+                            <option value=''></option>
+                            ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
+                        </select>
+                        <button class='remove-btn remove-link-btn' data-char='${idx}' data-remove-link='${li}'>✕</button>
+                    </div>`;
+                    return `<div class='service-block link-block'><div class='link-title'>Линк ${li+1}</div>${typeSel}${rows}</div>`;
+                }).join('');
+                const addLinkBtn = `<div style='margin:8px 0;'><button class='toolbar-btn' data-add-link='${idx}'>Добавить линк</button></div>`;
+                // параметры характеристики (скрываем числовые/единицы для Boolean и String)
+                const isBoolean = charDef && charDef.format === 'Boolean';
+                const isString = charDef && charDef.format === 'String';
+                const minRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minValue</label><input type='number' data-charp='${idx}' data-prop='minValue' data-default='${charDef?.minValue ?? ''}' value='${c.minValue ?? ''}' /></div>`;
+                const maxRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>maxValue</label><input type='number' data-charp='${idx}' data-prop='maxValue' data-default='${charDef?.maxValue ?? ''}' value='${c.maxValue ?? ''}' /></div>`;
+                const stepRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minStep</label><input type='number' data-charp='${idx}' data-prop='minStep' data-default='${charDef?.minStep ?? ''}' value='${c.minStep ?? ''}' /></div>`;
+                const unitRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>unit</label><input type='text' data-charp='${idx}' data-prop='unit' data-default='${charDef?.unit ?? ''}' value='${c.unit || ''}' /></div>`;
+                const rRow = `<div class='kv-row'><label style='min-width:160px;'>read</label><input type='checkbox' data-charp='${idx}' data-prop='read' data-default='${!!charDef?.read}' ${ (typeof c.read === 'undefined' ? (!!charDef?.read ? 'checked' : '') : (c.read ? 'checked' : '')) } /></div>`;
+                const wRow = `<div class='kv-row'><label style='min-width:160px;'>write</label><input type='checkbox' data-charp='${idx}' data-prop='write' data-default='${!!charDef?.write}' ${ (typeof c.write === 'undefined' ? (!!charDef?.write ? 'checked' : '') : (c.write ? 'checked' : '')) } /></div>`;
+                // validValues — показываем из enum или validValues
+                let vvHtml = '';
+                if (validKeys.length) {
+                    const current = new Set((c.validValues||'').split(',').map(s=>s.trim()).filter(Boolean));
+                    vvHtml = `<div class='section-title'>validValues</div>` +
+                        `<div class='service-block'>` +
+                        validKeys.map(name => {
+                            const ch = current.has(name) ? 'checked' : '';
+                            return `<label style='display:block;'><input type='checkbox' data-charvv='${idx}' data-vv='${name}' ${ch}/> ${name}</label>`;
+                        }).join('') +
+                        `</div>`;
+                }
+                const header = `<div class='section-title'>Параметры характеристики ${charNameRu} (${c.type}) у ${svc.name || 'NAME'} (${svcNameRu})</div>`;
+                return `<div class='char-block'>${header}${minRow}${maxRow}${stepRow}${unitRow}${rRow}${wRow}${vvHtml}<div class='section-title'>Link</div>${linksBlocks}${addLinkBtn}</div>`;
+            }).join('');
+            bodyEl.innerHTML = charHtml || '<div>Нет выбранных характеристик</div>';
+            // Обработчики
+            bodyEl.querySelectorAll('input[data-char], select[data-char]').forEach(inp => {
+                inp.addEventListener('input', () => {
+                    const ci = parseInt(inp.getAttribute('data-char'), 10);
+                    const li = inp.getAttribute('data-link');
+                    const field = inp.getAttribute('data-field');
+                    if (field) {
+                        if (!Array.isArray(svc.characteristics[ci].link)) svc.characteristics[ci].link = [];
+                        const linkIdx = li !== null && li !== undefined ? parseInt(li, 10) : 0;
+                        if (!svc.characteristics[ci].link[linkIdx]) svc.characteristics[ci].link[linkIdx] = {};
+                        svc.characteristics[ci].link[linkIdx][field] = inp.value;
+                    }
+                    saveState();
+                });
+            });
+            // обработка удаления map/outMap элементов
+            bodyEl.querySelectorAll('button[data-remove-map], button[data-remove-outMap]').forEach(btn => {
+                btn.addEventListener('click',(e)=>{
+                    e.preventDefault();
+                    const ci = parseInt(btn.getAttribute('data-char'),10);
+                    const li = parseInt(btn.getAttribute('data-link'),10);
+                    const isOut = btn.hasAttribute('data-remove-outMap');
+                    const idx = parseInt(btn.getAttribute(isOut?'data-remove-outMap':'data-remove-map'),10);
+                    const link = svc.characteristics[ci].link[li];
+                    const group = isOut ? 'outMap':'map';
+                    const entries = Object.entries(link[group]||{});
+                    if (entries[idx]) {
+                        const k = entries[idx][0];
+                        delete link[group][k];
+                    }
+                    saveState();
+                    renderCharacteristicsForms();
+                });
+            });
+            // обработка изменений map/outMap ключ/значение
+            bodyEl.querySelectorAll('input[data-map-key], input[data-map-val], input[data-outMap-key], input[data-outMap-val]').forEach(inp=>{
+                inp.addEventListener('input',()=>{
+                    const ci = parseInt(inp.getAttribute('data-char'),10);
+                    const li = parseInt(inp.getAttribute('data-link'),10);
+                    const isOut = inp.hasAttribute('data-outMap-key') || inp.hasAttribute('data-outMap-val');
+                    const isKey = inp.hasAttribute('data-map-key') || inp.hasAttribute('data-outMap-key');
+                    const idx = parseInt(inp.getAttribute(isOut? (isKey?'data-outMap-key':'data-outMap-val') : (isKey?'data-map-key':'data-map-val')),10);
+                    const link = svc.characteristics[ci].link[li];
+                    const group = isOut ? 'outMap':'map';
+                    if (!link[group]) link[group] = {};
+                    const entries = Object.entries(link[group]);
+                    const current = entries[idx] || ['', ''];
+                    const newKey = isKey ? inp.value : current[0];
+                    const newValRaw = isKey ? current[1] : inp.value;
+                    // определение типа значения при сохранении — пока сохраняем строкой, тип выберем на финальном сериализации
+                    // обновляем объект: удаляем старый ключ, ставим новый
+                    if (current[0] && newKey !== current[0]) delete link[group][current[0]];
+                    link[group][newKey] = newValRaw;
+                    saveState();
+                });
+            });
+            // добавление пары map/outMap (заполнение всеми ключами validValues, а также true/false для Boolean)
+            bodyEl.querySelectorAll('button[data-add-map], button[data-add-outMap]').forEach(btn=>{
+                btn.addEventListener('click',(e)=>{
+                    e.preventDefault();
+                    const ci = parseInt(btn.getAttribute('data-char'),10);
+                    const li = parseInt(btn.getAttribute('data-link'),10);
+                    const isOut = btn.hasAttribute('data-add-outMap');
+                    const link = svc.characteristics[ci].link[li];
+                    const group = isOut ? 'outMap':'map';
+                    if (!link[group]) link[group] = {};
+                    const ch = svc.characteristics[ci];
+                    // извлечь charDef и validKeys
+                    let def = null; const sDef = (window.shTypes||[]).find(s=>s.type===svc.type);
+                    if (sDef) {
+                        const lst=[...(sDef.required||[]),...(sDef.optional||[])].map(x=> (typeof x==='object'?x:{type:x}));
+                        def = lst.find(x=>x.type===ch.type) || null;
+                    }
+                    const keys = [];
+                    if (def && def.enum) keys.push(...Object.keys(def.enum));
+                    if (def && Array.isArray(def.validValues)) def.validValues.forEach(v=>{ if (v && typeof v.key!=='undefined') keys.push(String(v.key)); });
+                    const isBool = def && def.format==='Boolean';
+                    if (isBool) { keys.push('true','false'); }
+                    if (!Object.keys(link[group]).length && keys.length) {
+                        keys.forEach(k=>{ if (!Object.prototype.hasOwnProperty.call(link[group],k)) link[group][k]=''; });
+                    } else {
+                        let i = 0; let key = 'KEY'; while (Object.prototype.hasOwnProperty.call(link[group], key+(i||''))) i++; link[group][key+(i||'')]='';
+                    }
+                    saveState();
+                    renderCharacteristicsForms();
+                });
+            });
+            bodyEl.querySelectorAll('button[data-add-link]').forEach(btn => {
+                btn.addEventListener('click', (e)=>{
+                    e.preventDefault();
+                    const ci = parseInt(btn.getAttribute('data-add-link'), 10);
+                    if (!Array.isArray(svc.characteristics[ci].link)) svc.characteristics[ci].link = [];
+                    const baseFields = makeLinkFields();
+                    const init = { type: '' };
+                    baseFields.forEach(f => { init[f] = ''; });
+                    svc.characteristics[ci].link.push(init);
+                    saveState();
+                    renderCharacteristicsForms();
+                });
+            });
+            bodyEl.querySelectorAll('button[data-remove-link]').forEach(btn => {
+                btn.addEventListener('click', (e)=>{
+                    e.preventDefault();
+                    const ci = parseInt(btn.getAttribute('data-char'), 10);
+                    const li = parseInt(btn.getAttribute('data-remove-link'), 10);
+                    if (Array.isArray(svc.characteristics[ci].link)) svc.characteristics[ci].link.splice(li,1);
+                    saveState();
+                    renderCharacteristicsForms();
+                });
+            });
+            bodyEl.querySelectorAll('input[data-charp], input[type="checkbox"][data-charp]').forEach(inp=>{
+                const handler = ()=>{
+                    const ci = parseInt(inp.getAttribute('data-charp'), 10);
+                    const prop = inp.getAttribute('data-prop');
+                    let val = inp.type==='checkbox' ? inp.checked : inp.value;
+                    if (inp.type==='number') val = inp.value === '' ? undefined : parseFloat(inp.value);
+                    const defAttr = inp.getAttribute('data-default');
+                    // если значение совпадает с дефолтным (или пустое), не сохраняем поле
+                    if (inp.type==='checkbox') {
+                        const defVal = defAttr === 'true';
+                        if (val === defVal) delete svc.characteristics[ci][prop]; else svc.characteristics[ci][prop] = val;
+                    } else if (inp.type==='number') {
+                        const defVal = defAttr === '' ? undefined : parseFloat(defAttr);
+                        if ((typeof val === 'undefined' && typeof defVal === 'undefined') || val === defVal) delete svc.characteristics[ci][prop]; else svc.characteristics[ci][prop] = val;
+                    } else {
+                        if ((val==='' && (defAttr==='' || typeof defAttr==='undefined')) || val === defAttr) delete svc.characteristics[ci][prop]; else svc.characteristics[ci][prop] = val;
+                    }
+                    saveState();
+                };
+                inp.addEventListener('input', handler);
+                inp.addEventListener('change', handler);
+            });
+            bodyEl.querySelectorAll('input[data-charvv]').forEach(cb=>{
+                cb.addEventListener('change', ()=>{
+                    const ci = parseInt(cb.getAttribute('data-charvv'),10);
+                    const vv = cb.getAttribute('data-vv');
+                    const set = new Set((svc.characteristics[ci].validValues||'').split(',').map(s=>s.trim()).filter(Boolean));
+                    if (cb.checked) set.add(vv); else set.delete(vv);
+                    svc.characteristics[ci].validValues = Array.from(set).join(',');
+                    saveState();
+                });
+            });
+            // Управление кнопками в зависимости от режима
+            if (externalMode === 'addService') {
+                doneBtn.style.display = 'none';
+                nextBtn.style.display = '';
+                nextBtn.textContent = 'Готово';
+                nextBtn.onclick = () => { finishExternal((state.template.services || []).map(s => JSON.parse(JSON.stringify(s)))); };
+            } else if (externalMode === 'addCharacteristics') {
+                nextBtn.style.display = 'none';
+                doneBtn.style.display = '';
+                doneBtn.onclick = () => { const svcCopy = JSON.parse(JSON.stringify(svc)); finishExternal(svcCopy.characteristics || []); };
+            } else if (externalMode === 'addLink') {
+                nextBtn.style.display = 'none';
+                doneBtn.style.display = '';
+                doneBtn.onclick = () => {
+                    const ch = (svc.characteristics || [])[0] || { link: [] };
+                    finishExternal(JSON.parse(JSON.stringify(ch.link || [])));
+                };
+            } else {
+                nextBtn.onclick = () => {
+                    // Следующий сервис или к опциям
+                    if (state.serviceIdx < state.template.services.length - 1) {
+                        state.serviceIdx += 1; state.step = 2; saveState(); scrollWizardTop(); render();
+                    } else {
+                        state.step = 5; saveState(); scrollWizardTop(); render();
+                    }
+                };
+            }
+            prevBtn.onclick = () => { state.step = 3; saveState(); render(); };
+        }
+
+        function renderOptionsStep() {
+            titleEl.textContent = 'Опции';
+            const opts = state.template.options || [];
+            const list = opts.map((o, i) => `<div class='option-block'><div class='section-title'>${o.name||'(без имени)'} (${o.inputType||''})</div></div>`).join('');
+            bodyEl.innerHTML = `
+                <div>${list}</div>
+                <div style='margin-top:10px;'><button id='w_add_option' class='toolbar-btn'>Добавить опцию</button></div>
+            `;
+            const addBtn = document.getElementById('w_add_option');
+            addBtn.onclick = () => renderOptionWizard();
+            nextBtn.style.display = 'none';
+            doneBtn.style.display = '';
+            doneBtn.onclick = () => {
+                // Готово: вывести шаблон в редактор
+                const finalTemplate = JSON.parse(JSON.stringify(state.template));
+                // Автоконверсия типов для map/outMap
+                const convertValue = (s) => {
+                    if (s === 'true') return true;
+                    if (s === 'false') return false;
+                    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+                    return s;
+                };
+                (finalTemplate.services||[]).forEach(svc => {
+                    (svc.characteristics||[]).forEach(ch => {
+                        if (Array.isArray(ch.link)) {
+                            ch.link.forEach(lnk => {
+                                ['map','outMap'].forEach(g => {
+                                    if (lnk && lnk[g]) {
+                                        const obj = {};
+                                        Object.entries(lnk[g]).forEach(([k,v])=>{ obj[k] = convertValue(String(v)); });
+                                        lnk[g] = obj;
+                                    }
+                                });
+                            });
+                        }
+                    });
+                });
+                (finalTemplate.options||[]).forEach(opt => {
+                    if (Array.isArray(opt.link)) {
+                        opt.link.forEach(lnk => {
+                            ['map','outMap'].forEach(g => {
+                                if (lnk && lnk[g]) {
+                                    const obj = {};
+                                    Object.entries(lnk[g]).forEach(([k,v])=>{ obj[k] = convertValue(String(v)); });
+                                    lnk[g] = obj;
+                                }
+                            });
+                        });
+                    }
+                });
+                window.editor.setValue(JSON.stringify(finalTemplate, null, 2));
+                window.editor.refresh();
+                // Очистка прогресса
+                try { localStorage.removeItem(LS_KEY); } catch {}
+                resetState();
+                close();
+                window.showToast('Шаблон создан', 'success');
+            };
+            prevBtn.onclick = () => {
+                state.step = 4; // вернуться к последнему сервису
+                state.serviceIdx = state.template.services.length - 1;
+                saveState(); render();
+            };
+        }
+
+        function renderOptionWizard() {
+            titleEl.textContent = 'Новая опция';
+            const types = window.allowedInputTypesFromSchema || [];
+            const opt = { name: '', inputType: (types[0]||''), link: [{}] };
+            // Единый шаг: выбор inputType+name и Link
+            bodyEl.innerHTML = `
+                <div class='form-row'><label>Имя (name)</label><input id='w_opt_name2' type='text' value='${opt.name}'/></div>
+                <div class='form-row'><label>Тип опции (inputType)</label>
+                    <select id='w_opt_type2'>${types.map(t=>`<option value='${t}' ${opt.inputType===t?'selected':''}>${t}</option>`).join('')}</select>
+                </div>
+                <div class='section-title'>Link</div>
+                <div id='w_opt_links'></div>
+                <div style='margin:8px 0;'><button class='toolbar-btn' id='w_opt_add_link'>Добавить линк</button></div>
+            `;
+            function renderLinkBlocks() {
+                const controller = document.getElementById('controllerSelect')?.value || state.controller;
+                const ctrlFields = (window.controllerLinkFields && controller) ? window.controllerLinkFields[controller] : null;
+                const required = ctrlFields ? (ctrlFields.required || []) : [];
+                const readField = ctrlFields ? ctrlFields.read : null;
+                const writeField = ctrlFields ? ctrlFields.write : null;
+                const linkTypeEnum = (window.schema && window.schema.$defs && window.schema.$defs.link && window.schema.$defs.link.properties && window.schema.$defs.link.properties.type && window.schema.$defs.link.properties.type.enum) ? window.schema.$defs.link.properties.type.enum : [];
+                const fields = new Set(required);
+                if (readField) fields.add(readField);
+                if (writeField) fields.add(writeField);
+                const cont = document.getElementById('w_opt_links');
+                cont.innerHTML = (opt.link||[]).map((lnk, li)=>{
+                    // те же элементы, что и у характеристики: type, поля, map/outMap, заголовок
+                    const allFields = new Set(Object.keys(lnk).filter(k=>k!=='type' && k!=='map' && k!=='outMap'));
+                    fields.forEach(f=>allFields.add(f));
+                    allFields.add('inFunc');
+                    allFields.add('outFunc');
+                    let rows = Array.from(allFields).map(f => `<div class='kv-row'><label style='min-width:160px;'>${f}</label><input type='text' data-optlink='${li}' data-field='${f}' value='${lnk[f]||''}' /></div>`).join('');
+                    const renderPairs = (pairs, group) => {
+                        const entries = Object.entries(pairs||{});
+                        const list = entries.map(([k, val], pi)=>
+                            `<div class='kv-row'><label style='min-width:160px;'>${group}[${pi}]</label><input type='text' data-optlink='${li}' data-${group}-key='${pi}' value='${k}' />
+                             <input type='text' data-optlink='${li}' data-${group}-val='${pi}' value='${val}' />
+                             <button class='remove-btn' data-optlink='${li}' data-remove-${group}='${pi}'>−</button></div>`
+                        ).join('');
+                        const addLabel = entries.length ? 'Добавить поле' : `Добавить ${group}`;
+                        const add = `<div class='kv-row'><button class='toolbar-btn' data-optlink='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
+                        return `<div class='section-title'>${group}</div>${list}${add}`;
+                    };
+                    rows += renderPairs(lnk.map, 'map');
+                    rows += renderPairs(lnk.outMap, 'outMap');
+                    const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
+                        <select data-optlink='${li}' data-field='type'>
+                            <option value=''></option>
+                            ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
+                        </select>
+                        <button class='remove-btn remove-link-btn' data-remove-link='${li}'>✕</button>
+                    </div>`;
+                    return `<div class='service-block link-block'><div class='link-title'>Линк ${li+1}</div>${typeSel}${rows}</div>`;
+                }).join('') || `<div class='service-block link-block'>Нет линков</div>`;
+                // bind
+                cont.querySelectorAll('input[data-field], select[data-field]').forEach(inp => {
+                    inp.addEventListener('input', () => {
+                        const li = parseInt(inp.getAttribute('data-optlink'),10) || 0;
+                        if (!Array.isArray(opt.link)) opt.link = [];
+                        if (!opt.link[li]) opt.link[li] = {};
+                        opt.link[li][inp.getAttribute('data-field')] = inp.value;
+                    });
+                });
+                // обработка удаления map/outMap элементов
+                cont.querySelectorAll('button[data-remove-map], button[data-remove-outMap]').forEach(btn => {
+                    btn.addEventListener('click',(e)=>{
+                        e.preventDefault();
+                        const li = parseInt(btn.getAttribute('data-optlink'),10);
+                        const isOut = btn.hasAttribute('data-remove-outMap');
+                        const idx = parseInt(btn.getAttribute(isOut?'data-remove-outMap':'data-remove-map'),10);
+                        const link = (opt.link||[])[li] || {};
+                        const group = isOut ? 'outMap':'map';
+                        const entries = Object.entries(link[group]||{});
+                        if (entries[idx]) {
+                            const k = entries[idx][0];
+                            delete link[group][k];
+                        }
+                        renderLinkBlocks();
+                    });
+                });
+                // обработка изменений map/outMap ключ/значение
+                cont.querySelectorAll('input[data-map-key], input[data-map-val], input[data-outMap-key], input[data-outMap-val]').forEach(inp=>{
+                    inp.addEventListener('input',()=>{
+                        const li = parseInt(inp.getAttribute('data-optlink'),10);
+                        if (!Array.isArray(opt.link)) opt.link = [];
+                        if (!opt.link[li]) opt.link[li] = {};
+                        const isOut = inp.hasAttribute('data-outMap-key') || inp.hasAttribute('data-outMap-val');
+                        const isKey = inp.hasAttribute('data-map-key') || inp.hasAttribute('data-outMap-key');
+                        const idx = parseInt(inp.getAttribute(isOut? (isKey?'data-outMap-key':'data-outMap-val') : (isKey?'data-map-key':'data-map-val')),10);
+                        const group = isOut ? 'outMap':'map';
+                        if (!opt.link[li][group]) opt.link[li][group] = {};
+                        const entries = Object.entries(opt.link[li][group]);
+                        const current = entries[idx] || ['', ''];
+                        const newKey = isKey ? inp.value : current[0];
+                        const newValRaw = isKey ? current[1] : inp.value;
+                        if (current[0] && newKey !== current[0]) delete opt.link[li][group][current[0]];
+                        opt.link[li][group][newKey] = newValRaw;
+                    });
+                });
+                // добавление пары map/outMap
+                cont.querySelectorAll('button[data-add-map], button[data-add-outMap]').forEach(btn=>{
+                    btn.addEventListener('click',(e)=>{
+                        e.preventDefault();
+                        const li = parseInt(btn.getAttribute('data-optlink'),10);
+                        const isOut = btn.hasAttribute('data-add-outMap');
+                        const group = isOut ? 'outMap' : 'map';
+                        if (!Array.isArray(opt.link)) opt.link = [];
+                        if (!opt.link[li]) opt.link[li] = {};
+                        if (!opt.link[li][group]) opt.link[li][group] = {};
+                        let i = 0; let key = 'KEY';
+                        while (Object.prototype.hasOwnProperty.call(opt.link[li][group], key + (i||''))) i++;
+                        opt.link[li][group][key + (i||'')] = '';
+                        renderLinkBlocks();
+                    });
+                });
+                // удаление произвольного поля (не map/outMap)
+                cont.querySelectorAll('button[data-remove-field]').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const f = btn.getAttribute('data-remove-field');
+                        const li = parseInt(btn.getAttribute('data-optlink'),10)||0;
+                        if (Array.isArray(opt.link) && opt.link[li]) delete opt.link[li][f];
+                        renderLinkBlocks();
+                    });
+                });
+                cont.querySelectorAll('button[data-remove-link]').forEach(btn => {
+                    btn.addEventListener('click', (e)=>{
+                        e.preventDefault();
+                        const li = parseInt(btn.getAttribute('data-remove-link'),10)||0;
+                        if (Array.isArray(opt.link)) opt.link.splice(li,1);
+                        renderLinkBlocks();
+                    });
+                });
+            }
+            renderLinkBlocks();
+            document.getElementById('w_opt_add_link').onclick = ()=>{ if(!Array.isArray(opt.link)) opt.link=[]; const init={type:''}; opt.link.push(init); renderLinkBlocks(); };
+            nextBtn.style.display = 'none';
+            doneBtn.style.display = '';
+            if (externalMode === 'addOption') {
+                doneBtn.onclick = () => {
+                    opt.name = document.getElementById('w_opt_name2').value.trim();
+                    opt.inputType = document.getElementById('w_opt_type2').value;
+                    finishExternal(JSON.parse(JSON.stringify(opt)));
+                };
+            } else {
+                doneBtn.onclick = () => {
+                    opt.name = document.getElementById('w_opt_name2').value.trim();
+                    opt.inputType = document.getElementById('w_opt_type2').value;
+                    state.template.options = state.template.options || [];
+                    state.template.options.push(opt);
+                    saveState();
+                    renderOptionsStep();
+                };
+            }
+            prevBtn.onclick = () => { renderOptionsStep(); };
+        }
+
+        function renderOptionParams(opt) {
+            titleEl.textContent = 'Параметры опции и Link';
+            const controller = document.getElementById('controllerSelect')?.value || state.controller;
+            const ctrlFields = (window.controllerLinkFields && controller) ? window.controllerLinkFields[controller] : null;
+            const required = ctrlFields ? (ctrlFields.required || []) : [];
+            const readField = ctrlFields ? ctrlFields.read : null;
+            const writeField = ctrlFields ? ctrlFields.write : null;
+            const linkTypeEnum = (window.schema && window.schema.$defs && window.schema.$defs.link && window.schema.$defs.link.properties && window.schema.$defs.link.properties.type && window.schema.$defs.link.properties.type.enum) ? window.schema.$defs.link.properties.type.enum : [];
+            const fields = new Set(required);
+            if (readField) fields.add(readField);
+            if (writeField) fields.add(writeField);
+            const linkBlocks = (Array.isArray(opt.link)?opt.link:[]).map((lnk, li)=>{
+                const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
+                    <select data-optlink='${li}' data-field='type'>
+                        <option value=''></option>
+                        ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
+                    </select>
+                    <button class='remove-btn' data-remove-link='${li}'>Удалить линк</button>
+                </div>`;
+                const rows = Array.from(fields).map(f => `<div class='kv-row'><label style='min-width:160px;'>${f}</label><input type='text' data-optlink='${li}' data-field='${f}' value='${lnk[f]||''}' /><button class='remove-btn' data-remove-field='${f}' data-optlink='${li}'>−</button></div>`).join('');
+                return `<div class='service-block'>${typeSel}${rows}</div>`;
+            }).join('');
+            const addLinkBtn = `<div style='margin:8px 0;'><button class='toolbar-btn' id='w_opt_add_link'>Добавить линк</button></div>`;
+            const body = `
+                <div class='form-row'><label>Имя (name)</label><input id='w_opt_name2' type='text' value='${opt.name||''}'/></div>
+                <div class='form-row'><label>Тип опции (inputType)</label><input id='w_opt_type2' type='text' value='${opt.inputType||''}' disabled/></div>
+                <div class='section-title'>Link</div>
+                ${linkBlocks || '<div class="service-block">Нет линков</div>'}
+                ${addLinkBtn}
+            `;
+            bodyEl.innerHTML = body;
+            bodyEl.querySelectorAll('input[data-field], select[data-field]').forEach(inp => {
+                inp.addEventListener('input', () => {
+                    const li = parseInt(inp.getAttribute('data-optlink'),10) || 0;
+                    if (!Array.isArray(opt.link)) opt.link = [];
+                    if (!opt.link[li]) opt.link[li] = {};
+                    opt.link[li][inp.getAttribute('data-field')] = inp.value;
+                });
+            });
+            const addBtn = document.getElementById('w_opt_add_link');
+            if (addBtn) addBtn.onclick = ()=>{ if(!Array.isArray(opt.link)) opt.link=[]; opt.link.push({}); renderOptionParams(opt); };
+            bodyEl.querySelectorAll('button[data-remove-field]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const f = btn.getAttribute('data-remove-field');
+                    const li = parseInt(btn.getAttribute('data-optlink'),10)||0;
+                    if (Array.isArray(opt.link) && opt.link[li]) delete opt.link[li][f];
+                    renderOptionParams(opt);
+                });
+            });
+            bodyEl.querySelectorAll('button[data-remove-link]').forEach(btn => {
+                btn.addEventListener('click', (e)=>{
+                    e.preventDefault();
+                    const li = parseInt(btn.getAttribute('data-remove-link'),10)||0;
+                    if (Array.isArray(opt.link)) opt.link.splice(li,1);
+                    renderOptionParams(opt);
+                });
+            });
+            nextBtn.style.display = 'none';
+            doneBtn.style.display = '';
+            doneBtn.onclick = () => {
+                opt.name = document.getElementById('w_opt_name2').value.trim();
+                // type у опции оставляем пустым; inputType выбран ранее
+                state.template.options = state.template.options || [];
+                state.template.options.push(opt);
+                saveState();
+                renderOptionsStep();
+            };
+            prevBtn.onclick = () => { renderOptionsStep(); };
+        }
+
+        // Навигация/закрытие
+        function confirmCloseWizard() {
+            const ok = window.confirm('Закрыть мастер создания шаблона?');
+            if (ok) {
+                try { localStorage.removeItem(LS_KEY); } catch {}
+                resetState();
+                close();
+            }
+        }
+        backBtn.onclick = () => {
+            // Навигация: предыдущий шаг
+            if (state.step > 0) {
+                if (state.step === 3) state.step = 2; // из выбора характеристик к форме сервиса
+                else if (state.step === 2) state.step = 1; // форма сервиса -> список сервисов
+                else if (state.step === 4) state.step = 3; // формы характеристик -> выбор характеристик
+                else if (state.step === 5) { state.step = 4; state.serviceIdx = state.template.services.length - 1; }
+                else state.step = Math.max(0, state.step - 1);
+                saveState();
+                render();
+            } else {
+                // На шаге "Данные шаблона" (step 0) показываем выбор контроллера вместо закрытия
+                if (typeof window.showControllerSelectDialog === 'function') {
+                    // Перед открытием выбора контроллера прячем текущий мастер, а после закрытия — показываем снова
+                    const reopenWizard = () => { try { render(); open(); } catch(e){} };
+                    close();
+                    window.showControllerSelectDialog(function(controllerValue){
+                        if (!controllerValue) return;
+                        try {
+                            setControllerSelect(controllerValue);
+                        } catch(e){}
+                        state.controller = controllerValue;
+                        saveState();
+                        // после выбора — снова открыть мастер на том же шаге
+                        reopenWizard();
+                    }, false, reopenWizard);
+                } else {
+                    confirmCloseWizard();
+                }
+            }
+        };
+        closeBtn.onclick = () => { confirmCloseWizard(); };
+        dlg.addEventListener('mousedown', (e) => { if (e.target === dlg) confirmCloseWizard(); });
+    })();
+
+    // Горячая клавиша на скачивание: Ctrl/Cmd+S
+    window.editor.addKeyMap({
+        'Ctrl-S': function(cm) { try { window.downloadTemplate(); } catch(e){} },
+        'Cmd-S': function(cm) { try { window.downloadTemplate(); } catch(e){} }
+    });
+
+    // Валидация при изменении (с дебаунсом)
+    const validateDebounced = window.debounce(() => {
+        try { window.validateJson(true); } catch(e){}
+    }, 400);
+    window.editor.on('change', validateDebounced);
 
 }); // <-- Закрываю window.addEventListener('DOMContentLoaded', function() { ... });

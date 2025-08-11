@@ -27,25 +27,11 @@ window.showToast = function(message, type = 'info', duration = 3000) {
 };
 
 // --- Управление видимостью кнопок тулбара в зависимости от позиции курсора ---
+// Делегируем единому helper’у
 window.updateToolbarButtonsVisibility = function() {
-    const path = window.currentJsonCursorPath || [];
-    const addCharBtn = document.getElementById('addCharacteristicBtn');
-    const addLinkBtn = document.getElementById('addLinkBtn');
-    // Кнопка "Добавить характеристику" только если курсор внутри services/N
-    let inService = false;
-    if (path && path.length >= 2 && path[0].key === 'services' && typeof path[1].key === 'number') {
-        inService = true;
+    if (typeof window.updateCommandVisibility === 'function') {
+        window.updateCommandVisibility();
     }
-    if (addCharBtn) addCharBtn.style.display = inService ? '' : 'none';
-    // Кнопка "Добавить линк" только если курсор внутри services/N/characteristics/M или options/N
-    let inCharacteristic = false, inOption = false;
-    if (path && path.length >= 4 && path[0].key === 'services' && typeof path[1].key === 'number' && path[2].key === 'characteristics' && typeof path[3].key === 'number') {
-        inCharacteristic = true;
-    }
-    if (path && path.length >= 2 && path[0].key === 'options' && typeof path[1].key === 'number') {
-        inOption = true;
-    }
-    if (addLinkBtn) addLinkBtn.style.display = (inCharacteristic || inOption) ? '' : 'none';
 }
 
 window.initEditorToolbar = function() {
@@ -145,20 +131,102 @@ window.initEditorToolbar = function() {
 
     // Функции добавления элементов
     document.getElementById('addServiceBtn').addEventListener('click', () => {
-        addService();
+        // Открываем визард: выбор сервиса -> характеристики, без шага опций
+        if (typeof window.startWizardAddService === 'function') {
+            window.startWizardAddService(function(services) {
+                if (!Array.isArray(services) || services.length === 0) return;
+                try {
+                    const json = JSON.parse(window.editor.getValue() || '{}');
+                    if (!Array.isArray(json.services)) json.services = [];
+                    json.services.push(...services);
+                    window.editor.setValue(JSON.stringify(json, null, 2));
+                    window.editor.refresh();
+                    window.showToast('Сервис добавлен через мастер', 'success');
+                } catch(e) { window.showToast('Ошибка добавления сервиса: '+e.message, 'error'); }
+            });
+        } else {
+            addService();
+        }
     });
 
     document.getElementById('addCharacteristicBtn').addEventListener('click', () => {
+        // Если курсор в сервисе — открываем визард выбора характеристик + настройки
+        try {
+            const path = window.currentJsonCursorPath || [];
+            if (path.length >= 2 && path[0].key === 'services' && typeof path[1].key === 'number') {
+                const json = JSON.parse(window.editor.getValue());
+                const svc = json.services[path[1].key];
+                if (svc && typeof window.startWizardAddCharacteristics === 'function') {
+                    window.startWizardAddCharacteristics(svc.type, function(chars){
+                        if (!Array.isArray(chars) || chars.length===0) return;
+                        if (!Array.isArray(svc.characteristics)) svc.characteristics = [];
+                        svc.characteristics.push(...chars.map(c=>({ type: c.type || '', link: [{}] })));
+                        window.editor.setValue(JSON.stringify(json, null, 2));
+                        window.editor.refresh();
+                        window.showToast('Характеристики добавлены через мастер', 'success');
+                    });
+                    return;
+                }
+            }
+        } catch(e) {}
         addCharacteristic();
     });
 
     document.getElementById('addLinkBtn').addEventListener('click', () => {
+        // Если курсор на характеристике — визард линков для неё
+        try {
+            const path = window.currentJsonCursorPath || [];
+            if (path.length >= 4 && path[0].key === 'services' && typeof path[1].key === 'number' && path[2].key === 'characteristics' && typeof path[3].key === 'number') {
+                const json = JSON.parse(window.editor.getValue());
+                const svc = json.services[path[1].key];
+                const char = svc.characteristics[path[3].key];
+                if (svc && char && typeof window.startWizardAddLink === 'function') {
+                    window.startWizardAddLink(svc.type, char.type, function(links){
+                        if (!Array.isArray(links) || links.length===0) return;
+                        if (!Array.isArray(char.link)) char.link = [];
+                        char.link.push(...links);
+                        window.editor.setValue(JSON.stringify(json, null, 2));
+                        window.editor.refresh();
+                        window.showToast('Линки добавлены через мастер', 'success');
+                    });
+                    return;
+                }
+            }
+        } catch(e) {}
         addLink();
     });
 
     document.getElementById('addOptionBtn').addEventListener('click', () => {
-        addOption();
+        if (typeof window.startWizardAddOption === 'function') {
+            window.startWizardAddOption(function(opt){
+                if (!opt) return;
+                try {
+                    const json = JSON.parse(window.editor.getValue()||'{}');
+                    if (!Array.isArray(json.options)) json.options = [];
+                    json.options.push(opt);
+                    window.editor.setValue(JSON.stringify(json, null, 2));
+                    window.editor.refresh();
+                    window.showToast('Опция добавлена через мастер', 'success');
+                } catch(e) { window.showToast('Ошибка добавления опции: '+e.message, 'error'); }
+            });
+        } else {
+            addOption();
+        }
     });
+
+    // Мастер создания шаблона — верхняя кнопка
+    const wizardTopBtn = document.getElementById('openWizardTopBtn');
+    if (wizardTopBtn) {
+        wizardTopBtn.addEventListener('click', () => {
+            // Всегда начинаем с выбора контроллера
+            const select = document.getElementById('controllerSelect');
+            window.showControllerSelectDialog(function(controllerValue){
+                if (!controllerValue) return;
+                if (select) { select.value = controllerValue; select.dispatchEvent(new Event('change', { bubbles:true })); }
+                if (typeof window.startTemplateWizard === 'function') window.startTemplateWizard(controllerValue);
+            }, false);
+        });
+    }
 
     // Обработчики кнопок копирования/вставки
     document.getElementById('copyBtn').addEventListener('click', () => {
@@ -229,9 +297,50 @@ window.initEditorToolbar = function() {
         });
     }
 };
+// Мастер генерации шаблона: контроллер → сервис → характеристики → link
+window.openTemplateWizard = function() {
+    try {
+        if (!window.shTypes || !Array.isArray(window.shTypes) || window.shTypes.length === 0) {
+            window.showToast('Типы сервисов не загружены', 'error');
+            return;
+        }
+        // 1) Выбор контроллера (без опции буфера обмена)
+        window.showControllerSelectDialog(function(controllerValue) {
+            if (!controllerValue) return;
+            // Применим выбранный контроллер к select
+            const select = document.getElementById('controllerSelect');
+            if (select) {
+                select.value = controllerValue;
+                const event = new Event('change', { bubbles: true });
+                select.dispatchEvent(event);
+            }
+            // 2) Выбор сервиса → 3) Выбор характеристик (используем существующий диалог, он вернёт сервис с характеристиками)
+            window.showServiceSelectDialog(function(serviceWithCharacteristics) {
+                if (!serviceWithCharacteristics) return;
+                // 4) Сформировать шаблон
+                const template = {
+                    manufacturer: '',
+                    model: '',
+                    manufacturerId: '',
+                    modelId: '',
+                    catalogId: 0,
+                    services: [serviceWithCharacteristics]
+                };
+                // Установить в редактор
+                saveAndRestoreCursorPosition(() => {
+                    window.editor.setValue(JSON.stringify(template, null, 2));
+                    window.editor.refresh();
+                });
+                window.showToast('Шаблон создан мастером', 'success');
+            });
+        }, false);
+    } catch (e) {
+        window.showToast('Ошибка мастера: ' + e.message, 'error');
+    }
+};
 
 // Диалог выбора контроллера
-window.showControllerSelectDialog = function(onSelect, includeClipboard = true) {
+window.showControllerSelectDialog = function(onSelect, includeClipboard = true, onClose = null) {
     const controllers = [
         { name: 'MQTT', value: 'MQTT' },
         { name: 'ZigBee', value: 'ZigBee' },
@@ -258,7 +367,8 @@ window.showControllerSelectDialog = function(onSelect, includeClipboard = true) 
         onSelect: (item) => {
             if (onSelect) onSelect(item.value, item);
         },
-        enableSearch: false
+        enableSearch: false,
+        onClose
     });
 };
 
@@ -293,7 +403,6 @@ window.createEmptyTemplate = function() {
         }
         // Создать пустой шаблон
         const emptyTemplate = {
-            name: "",
             manufacturer: "",
             model: "",
             manufacturerId: "",
@@ -723,7 +832,8 @@ window.showModalSelectDialog = function({
     selected = [],
     footerHtml = '',
     onFooterBtn = null,
-    searchFields = null
+    searchFields = null,
+    onClose = null
 }) {
     const dialog = document.getElementById('modalSelectDialog');
     const titleEl = document.getElementById('modalSelectTitle');
@@ -780,12 +890,17 @@ window.showModalSelectDialog = function({
     searchInput.value = '';
     searchInput.style.display = enableSearch ? '' : 'none';
     footerEl.innerHTML = footerHtml || '';
+    // сохранить onClose, чтобы вызвать при закрытии из любого обработчика
+    dialog._onClose = typeof onClose === 'function' ? onClose : null;
     dialog.style.display = 'flex';
     filterList();
     if (enableSearch) searchInput.focus();
 
     searchInput.oninput = filterList;
-    closeBtn.onclick = () => { dialog.style.display = 'none'; };
+    closeBtn.onclick = () => {
+        dialog.style.display = 'none';
+        if (typeof dialog._onClose === 'function') { const cb = dialog._onClose; dialog._onClose = null; try { cb(); } catch(e){} }
+    };
     footerEl.onclick = (e) => {
         if (onFooterBtn) onFooterBtn(Array.from(selectedSet).map(i => filteredItems[i]), e);
     };
@@ -994,6 +1109,7 @@ window.showCharacteristicSelectDialog = function(service, onDone, showBackButton
             const searchContainer = document.getElementById('modalSelectSearch').parentElement;
             if (backBtn) backBtn.style.display = 'none';
             if (searchContainer) searchContainer.style.display = '';
+            if (typeof dialog._onClose === 'function') { const cb = dialog._onClose; dialog._onClose = null; try { cb(); } catch(e){} }
         }
     });
     // Esc
@@ -1004,6 +1120,7 @@ window.showCharacteristicSelectDialog = function(service, onDone, showBackButton
             const searchContainer = document.getElementById('modalSelectSearch').parentElement;
             if (backBtn) backBtn.style.display = 'none';
             if (searchContainer) searchContainer.style.display = '';
+            if (typeof dialog._onClose === 'function') { const cb = dialog._onClose; dialog._onClose = null; try { cb(); } catch(e){} }
         }
     });
 })();

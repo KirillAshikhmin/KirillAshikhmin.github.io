@@ -220,6 +220,93 @@ window.initDragAndDrop = function() {
     }
 };
 
+// --- Универсальные утилиты ---
+window.debounce = function(fn, delay = 300) {
+    let t = null;
+    return function(...args) {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(this, args), delay);
+    };
+};
+
+window.jsonPointerToSegments = function(pointer) {
+    if (!pointer) return [];
+    const raw = (pointer.startsWith('/') ? pointer.slice(1) : pointer);
+    if (!raw) return [];
+    return raw.split('/').map(s => s.replace(/~1/g, '/').replace(/~0/g, '~'));
+};
+
+window.jsonPointerToPath = function(pointer) {
+    if (!pointer) return '';
+    const segments = window.jsonPointerToSegments(pointer);
+    let path = '';
+    segments.forEach((seg, idx) => {
+        if (/^\d+$/.test(seg)) {
+            path += `[${parseInt(seg, 10)}]`;
+        } else {
+            path += (idx === 0 ? '' : '.') + seg;
+        }
+    });
+    return path;
+};
+
+window.segmentsGet = function(root, segments) {
+    let cur = root;
+    for (const seg of segments) {
+        if (cur == null) return undefined;
+        if (Array.isArray(cur) && /^\d+$/.test(seg)) {
+            cur = cur[parseInt(seg, 10)];
+        } else {
+            cur = cur[seg];
+        }
+    }
+    return cur;
+};
+
+window.ensureJsonHasTypeUnknown = function(root, pointer, corrections) {
+    const segments = window.jsonPointerToSegments(pointer);
+    const target = window.segmentsGet(root, segments);
+    if (target && typeof target === 'object' && !target.type) {
+        target.type = 'unknown';
+        if (Array.isArray(corrections)) corrections.push(`Добавлено поле type="unknown" в ${pointer || 'объект'}`);
+        return true;
+    }
+    return false;
+};
+
+window.writeJsonOrderedBySchema = function(json, schema) {
+    if (!schema || !schema.properties || typeof json !== 'object' || json === null) return json;
+    const ordered = {};
+    const order = Object.keys(schema.properties);
+    for (const k of order) {
+        if (Object.prototype.hasOwnProperty.call(json, k)) ordered[k] = json[k];
+    }
+    for (const k of Object.keys(json)) {
+        if (!Object.prototype.hasOwnProperty.call(ordered, k)) ordered[k] = json[k];
+    }
+    return ordered;
+};
+
+window.saveOpenState = function(editorValue, controllerValue) {
+    try {
+        localStorage.setItem('jsonEditorValue', editorValue);
+        if (controllerValue) localStorage.setItem('selectedController', controllerValue);
+    } catch {}
+};
+
+window.loadOpenState = function() {
+    try {
+        return {
+            json: localStorage.getItem('jsonEditorValue') || '',
+            controller: localStorage.getItem('selectedController') || ''
+        };
+    } catch {
+        return { json: '', controller: '' };
+    }
+};
+
+// computeJsonDiff / renderDiffPreview / escapeHtml удалены — дифф-превью отключено
+
 window.detectControllerType = function(template, controllerFields) {
     // Собираем все link-объекты из characteristics и options
     function collectLinks(obj) {

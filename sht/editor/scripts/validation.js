@@ -133,8 +133,14 @@ window.translateAjvError = function(error, json, jsonStr) {
     
     // Преобразуем JSON Pointer в путь для подсветки
     const jsonPointerToPath = (pointer) => {
+        // Делегируем утилите
         if (!pointer) return '';
-        return pointer.replace(/\//g, '.').replace(/^\./, '');
+        const segments = window.jsonPointerToSegments(pointer);
+        let path = '';
+        segments.forEach((seg, idx) => {
+            if (/^\d+$/.test(seg)) path += `[${parseInt(seg, 10)}]`; else path += (idx === 0 ? '' : '.') + seg;
+        });
+        return path;
     };
     
     const pathForHighlight = jsonPointerToPath(path);
@@ -163,7 +169,7 @@ window.translateAjvError = function(error, json, jsonStr) {
             contextPrefix = '';
         }
     }
-    const line = window.highlightErrorLine(pathForHighlight, jsonStr);
+            const line = window.highlightErrorLine(pathForHighlight, jsonStr);
     switch (error.keyword) {
         case 'additionalProperties':
             const extraProp = error.params.additionalProperty;
@@ -183,6 +189,15 @@ window.translateAjvError = function(error, json, jsonStr) {
             break;
         case 'dependencies':
             translated = `Поле ${path} должно содержать свойство ${error.params.missingProperty}, если присутствует ${error.params.property} (строка ${line})`;
+            break;
+        case 'propertyNames':
+            const badName = (error.params && error.params.propertyName) ? error.params.propertyName : '';
+            translated = `Недопустимое имя свойства "${badName}" в ${path || 'объекте'} (строка ${line})`;
+            break;
+        case 'pattern':
+            // Читаем ожидаемый паттерн из сообщения/параметров
+            const pattern = (error.params && error.params.pattern) ? error.params.pattern : (error.message || '').match(/\"([^\"]+)\"$/)?.[1] || '';
+            translated = `${contextPrefix || 'Ошибка в '}${pathForHighlight || path}: должно соответствовать шаблону "${pattern}" (строка ${line})`;
             break;
         default:
             translated = `Ошибка в ${path}: ${message} (строка ${line})`;
@@ -204,29 +219,24 @@ window.autoFixJson = function(isManual = true) {
         validate(json);
         if (validate.errors) {
             validate.errors.forEach(error => {
-                // Используем instancePath (новый стандарт) или dataPath (для обратной совместимости)
-                const errorPath = error.instancePath || error.dataPath || '';
-                const path = errorPath.split('.').filter(p => p).reduce((obj, key) => {
-                    if (key.includes('[')) {
-                        const [arrayKey, index] = key.split(/\[(\d+)\]/).filter(Boolean);
-                        return obj[arrayKey][parseInt(index)];
+                // Преобразуем JSON Pointer в сегменты
+                const pointer = (error.instancePath || error.dataPath || '').replace(/^\//, '');
+                const segments = pointer ? pointer.split('/').map(s => s.replace(/~1/g, '/').replace(/~0/g, '~')) : [];
+                // Переходим к целевому объекту
+                let target = json;
+                for (const seg of segments) {
+                    if (target == null) break;
+                    if (Array.isArray(target) && /^\d+$/.test(seg)) {
+                        target = target[parseInt(seg, 10)];
+                    } else {
+                        target = target[seg];
                     }
-                    return obj[key];
-                }, json);
-                if (error.keyword === 'dependencies' && error.params.missingProperty === 'type') {
-                    const linkPath = errorPath.split('.').filter(p => p);
-                    let link = json;
-                    for (let i = 0; i < linkPath.length; i++) {
-                        let key = linkPath[i];
-                        if (key.includes('[')) {
-                            const [arrayKey, index] = key.split(/\[(\d+)\]/).filter(Boolean);
-                            link = link[arrayKey][parseInt(index)];
-                        } else {
-                            link = link[key];
-                        }
+                }
+                if (error.keyword === 'dependencies' && error.params && error.params.missingProperty === 'type') {
+                    if (target && typeof target === 'object' && !target.type) {
+                        target.type = 'unknown';
+                        corrections.push(`Добавлено поле type="unknown" в ${pointer || 'объект'}`);
                     }
-                    link.type = 'unknown';
-                    corrections.push(`Добавлено поле type="unknown" в ${errorPath}`);
                 }
             });
         }
@@ -245,6 +255,51 @@ window.autoFixJson = function(isManual = true) {
         }
     } catch (e) {
         document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка автоматического исправления: ${e.message}</li></ul>`;
+    }
+};
+
+// Красивое форматирование JSON в редакторе с сохранением позиции курсора
+window.formatJson = function() {
+    try {
+        const value = window.editor.getValue();
+        if (!value.trim()) {
+            document.getElementById('errorOutput').innerHTML = `<ul><li>Необходимо сперва открыть файл шаблона</li></ul>`;
+            return;
+        }
+        // Сохраняем позицию курсора и скролл
+        const cursor = window.editor.getCursor();
+        const scroll = window.editor.getScrollInfo();
+
+        let json = JSON.parse(value);
+        if (Array.isArray(json)) {
+            document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка: Введите один шаблон (объект JSON), а не массив</li></ul>`;
+            return;
+        }
+
+        // Упорядочиваем ключи верхнего уровня по схеме (если доступна)
+        if (window.schema) {
+            json = window.writeJsonOrderedBySchema(json, window.schema);
+        }
+
+        window.editor.setValue(JSON.stringify(json, null, 2));
+        window.editor.refresh();
+        // Восстанавливаем позицию курсора и скролл
+        setTimeout(() => {
+            try {
+                window.editor.setCursor(cursor);
+                window.editor.scrollTo(scroll.left, scroll.top);
+            } catch (_) {}
+        }, 0);
+        window.clearErrorHighlights();
+        // Не засоряем вывод при сценарии one-click
+        if (!window.formatFromOneClick) {
+            const co = document.getElementById('correctionOutput');
+            if (co && !co.innerHTML.trim()) {
+                co.innerHTML = '<ul><li>JSON отформатирован</li></ul>';
+            }
+        }
+    } catch (e) {
+        document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка форматирования: ${e.message}</li></ul>`;
     }
 };
 
@@ -315,26 +370,65 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
         if (!valid) {
             const allErrors = validate.errors || [];
             const filteredErrors = allErrors.filter(error => {
-                if (error.keyword !== 'anyOf') {
-                    return true;
-                }
                 const path = error.instancePath || error.dataPath || '';
-                const hasMoreSpecificError = allErrors.some(otherError => {
+                const hasDeeper = allErrors.some(otherError => {
                     const otherPath = otherError.instancePath || otherError.dataPath || '';
                     return otherError !== error && otherPath.startsWith(path) && otherPath.length > path.length;
                 });
-                return !hasMoreSpecificError;
+
+                const msg = error.message || '';
+                const isAnyOf = error.keyword === 'anyOf';
+                const isIfThenElse = error.keyword === 'if' || error.keyword === 'then' || error.keyword === 'else';
+                const isGenericThenElseMsg = /should match\s+"(then|else)"\s+schema/i.test(msg);
+                const isGenericMatchMsg = /should match/i.test(msg) || /should be/i.test(msg);
+
+                // Скрываем обобщённые сообщения:
+                // - anyOf с общим текстом
+                // - if/then/else "should match \"then\" schema" (особенно если есть более глубокие ошибки)
+                if (isAnyOf) {
+                    return !hasDeeper && !isGenericMatchMsg;
+                }
+                if (isIfThenElse && (isGenericThenElseMsg || (isGenericMatchMsg && hasDeeper))) {
+                    return false;
+                }
+                return true;
             });
-            const schemaErrors = filteredErrors
-                    .map(err => {
-                        const result = window.translateAjvError(err, json, jsonStr);
-                        return result;
-                    })
-                    .filter(({ message }) => !/should match/i.test(message))
-                    .map(({ message }) => `<li>${message}</li>`)
-                    .join('')
-                ;
-            errorOutput += schemaErrors;
+            // Группировка ошибок по сервисам/характеристикам
+            const grouped = {};
+            filteredErrors.forEach(err => {
+                const res = window.translateAjvError(err, json, jsonStr);
+                const msg = res.message;
+                // Определяем ключ группы
+                const ptr = err.instancePath || err.dataPath || '';
+                const p = window.jsonPointerToSegments(ptr);
+                let groupKey = 'Общие ошибки';
+                let serviceKey = null;
+                let charKey = null;
+                // Ищем индексы services[i] и characteristics[j]
+                for (let i = 0; i < p.length; i++) {
+                    if (p[i] === 'services' && /^\d+$/.test(p[i+1] || '')) {
+                        const si = parseInt(p[i+1], 10);
+                        const s = json.services && json.services[si];
+                        serviceKey = s ? (s.name || s.type || `Сервис ${si+1}`) : `Сервис ${si+1}`;
+                    }
+                    if (p[i] === 'characteristics' && /^\d+$/.test(p[i+1] || '')) {
+                        const ci = parseInt(p[i+1], 10);
+                        const c = (json.services || []).flatMap(s => s.characteristics || [])[ci] || null;
+                        charKey = c ? (c.type || `Характеристика ${ci+1}`) : `Характеристика ${ci+1}`;
+                    }
+                }
+                if (serviceKey) groupKey = serviceKey;
+                if (serviceKey && charKey) groupKey = `${serviceKey} → ${charKey}`;
+                if (!grouped[groupKey]) grouped[groupKey] = [];
+                grouped[groupKey].push({ msg, ptr });
+            });
+
+            // Рендер групп с кнопками навигации
+            const items = Object.entries(grouped).map(([group, arr]) => {
+                const lis = arr.map(e => `<li><button class="btn btn-link" data-jsonptr="${e.ptr}">🔎</button> ${e.msg}</li>`).join('');
+                return `<li><b>${group}</b><ul>${lis}</ul></li>`;
+            }).join('');
+            errorOutput += items;
         }
         if (errors.length > 0) {
             errorOutput += errors.map(err => `<li>${err}</li>`).join('');
@@ -344,7 +438,21 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
         }
         if (errorOutput) {
             document.getElementById('autoFixContainer').innerHTML = `<button id="autoFixButton" class="btn btn-warning" onclick="autoFixJson()">Попробовать исправить автоматически</button>`;
-            document.getElementById('errorOutput').innerHTML = `<ul>${errorOutput}</ul>`;
+            const errorBox = document.getElementById('errorOutput');
+            errorBox.innerHTML = `<ul>${errorOutput}</ul>`;
+            // Навигация к месту ошибки по кнопкам 🔎
+            errorBox.querySelectorAll('button[data-jsonptr]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const ptr = btn.getAttribute('data-jsonptr');
+                    const path = jsonPointerToPath(ptr);
+                    const line = window.highlightErrorLine(path, jsonStr);
+                    if (line > 0) {
+                        window.editor.scrollIntoView({ line: line - 1, ch: 0 }, 100);
+                        window.editor.setCursor({ line: line - 1, ch: 0 });
+                        window.editor.focus();
+                    }
+                });
+            });
             if (!isAutoValidation && !suppressCorrectionOutput) {
                 document.getElementById('correctionOutput').textContent = '';
             }

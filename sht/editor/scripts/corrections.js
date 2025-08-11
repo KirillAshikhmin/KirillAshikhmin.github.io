@@ -252,14 +252,16 @@ window.correctJson = function() {
         document.getElementById('autoFixContainer').innerHTML = '';
         let json = JSON.parse(value);
         window.oneClickFixMode = false;
-        window.selectTemplateWithDropdown(json, (selectedIndex) => {
-            let templates = Array.isArray(json) ? json : (json && typeof json === 'object' && Object.keys(json).every(k => /^\d+$/.test(k))) ? Object.values(json) : [json];
-            const selectedTemplate = templates[selectedIndex] !== undefined ? templates[selectedIndex] : templates[0];
+        window.selectTemplateWithDropdown(json, (selected) => {
+            const templates = Array.isArray(json) ? json : (json && typeof json === 'object' && Object.keys(json).every(k => /^\d+$/.test(k))) ? Object.values(json) : [json];
+            const selectedTemplate = (typeof selected === 'number') ? (templates[selected] ?? templates[0]) : (selected || templates[0]);
             const { finalJson, corrections } = window.applyCorrections(selectedTemplate, window.schema, window.allowedInputTypesFromSchema);
             window.editor.setValue(JSON.stringify(finalJson, null, 2));
-            document.getElementById('correctionOutput').innerHTML = corrections.length > 0
+            const list = corrections.length > 0
                 ? `<ul>${corrections.map(c => `<li>${c}</li>`).join('')}</ul>`
                 : '<ul><li>Исправления не требовались</li></ul>';
+            const out = document.getElementById('correctionOutput');
+            out.innerHTML = list;
             window.clearErrorHighlights();
             window.editor.refresh();
         });
@@ -302,8 +304,8 @@ window.oneClickFix = async function() {
                         document.getElementById('autoFixContainer').innerHTML = '';
                         if (Array.isArray(parsed) && parsed.length > 1) {
                             window.oneClickFixMode = true;
-                            window.selectTemplateWithDropdown(parsed, (selectedIndex) => {
-                                const selectedTemplate = parsed[selectedIndex];
+                            window.selectTemplateWithDropdown(parsed, (selected) => {
+                                const selectedTemplate = (typeof selected === 'number') ? (parsed[selected] ?? parsed[0]) : (selected || parsed[0]);
                                 window.editor.setValue(JSON.stringify(selectedTemplate, null, 2));
                                 window.editor.refresh();
                             });
@@ -340,7 +342,8 @@ window.oneClickFixRun = async function() {
         const { finalJson, corrections } = window.applyCorrections(json, window.schema, window.allowedInputTypesFromSchema);
         window.editor.setValue(JSON.stringify(finalJson, null, 2));
         if (corrections.length > 0) {
-            document.getElementById('correctionOutput').innerHTML += `<ul>${corrections.map(c => `<li>${c}</li>`).join('')}</ul>`;
+            const el = document.getElementById('correctionOutput');
+            el.innerHTML += `<ul>${corrections.map(c => `<li>${c}</li>`).join('')}</ul>`;
         } else {
             document.getElementById('correctionOutput').innerHTML += '<ul><li>Исправления не требовались.</li></ul>';
         }
@@ -376,45 +379,14 @@ window.oneClickFixRun = async function() {
     }
 };
 
-// --- Валидация сервисов и характеристик ---
-function validateServiceAndCharacteristics(json, errors, warnings, jsonStr, shTypes) {
-    if (json.services && Array.isArray(json.services)) {
-        json.services.forEach((service, serviceIndex) => {
-            if (!service.type) {
-                errors.push(`Сервис ${serviceIndex + 1}: Отсутствует поле type`);
-                return;
-            }
-            const serviceDef = shTypes.find(t => t.type === service.type);
-            if (!serviceDef) {
-                errors.push(`Сервис ${service.type}: Тип сервиса не найден`);
-                return;
-            }
-            if (!service.characteristics || !Array.isArray(service.characteristics)) {
-                errors.push(`Сервис ${service.type}: Отсутствует или некорректно поле characteristics`);
-                return;
-            }
-            service.characteristics.forEach((char, charIndex) => {
-                if (!char.type) {
-                    errors.push(`Сервис ${service.type}, характеристика ${charIndex + 1}: Отсутствует поле type`);
-                    return;
-                }
-                const supportedCharacteristics = [
-                    ...(serviceDef.required || []),
-                    ...(serviceDef.optional || [])
-                ];
-                const charDef = supportedCharacteristics.find(c => c.type === char.type);
-                if (!charDef) {
-                    warnings.push(`Сервис ${service.type}: Характеристика ${char.type} не поддерживается`);
-                }
-            });
-        });
-    }
-}
-
 // --- Экспортируемые функции ---
 if (typeof module !== 'undefined') {
     module.exports = {
         applyCorrections,
-        validateServiceAndCharacteristics
+        validateServiceAndCharacteristics: (json, errors, warnings, jsonStr) => {
+            if (typeof window !== 'undefined' && typeof window.validateServiceAndCharacteristics === 'function') {
+                return window.validateServiceAndCharacteristics(json, errors, warnings, jsonStr);
+            }
+        }
     };
-} 
+}

@@ -1,17 +1,19 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Умный спутник - Редактор шаблонов Sprut.Hub</title>
-    <meta name="description" content="Веб-редактор для создания и редактирования шаблонов сценариев Sprut.Hub с подсветкой синтаксиса и автодополнением">
-    
+    <meta name="description"
+        content="Веб-редактор для создания и редактирования шаблонов сценариев Sprut.Hub с подсветкой синтаксиса и автодополнением">
+
     <!-- Favicon and App Icons -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
-    
+
     <!-- Apple Touch Icons -->
     <link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png">
     <link rel="apple-touch-icon" sizes="60x60" href="/apple-icon-60x60.png">
@@ -24,7 +26,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon-180x180.png">
     <link rel="apple-touch-icon" href="/apple-icon.png">
     <link rel="apple-touch-icon-precomposed" href="/apple-icon-precomposed.png">
-    
+
     <!-- Android Icons -->
     <link rel="icon" type="image/png" sizes="36x36" href="/android-icon-36x36.png">
     <link rel="icon" type="image/png" sizes="48x48" href="/android-icon-48x48.png">
@@ -32,26 +34,27 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/android-icon-96x96.png">
     <link rel="icon" type="image/png" sizes="144x144" href="/android-icon-144x144.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/android-icon-192x192.png">
-    
+
     <!-- Microsoft Icons -->
     <link rel="icon" type="image/png" sizes="70x70" href="/ms-icon-70x70.png">
     <link rel="icon" type="image/png" sizes="144x144" href="/ms-icon-144x144.png">
     <link rel="icon" type="image/png" sizes="150x150" href="/ms-icon-150x150.png">
     <link rel="icon" type="image/png" sizes="310x310" href="/ms-icon-310x310.png">
-    
+
     <!-- Web App Manifest -->
     <link rel="manifest" href="/manifest.json">
-    
+
     <!-- Browser Config -->
     <meta name="msapplication-config" content="/browserconfig.xml">
     <meta name="msapplication-TileColor" content="#1a1a1a">
     <meta name="msapplication-TileImage" content="/ms-icon-144x144.png">
     <meta name="theme-color" content="#1a1a1a">
-    
+
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/fold/foldgutter.min.css">
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/fold/foldgutter.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/theme/dracula.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/hint/show-hint.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.7/addon/dialog/dialog.min.css">
@@ -73,9 +76,12 @@
     <script src="https://cdn.jsdelivr.net/npm/js-untar@2.0.0/build/dist/untar.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 </head>
+
 <body class="system">
     <div id="toastContainer" class="toast-container"></div>
-    <div id="dropZone"><p>Перетащите JSON-файл сюда</p></div>
+    <div id="dropZone">
+        <p>Перетащите JSON-файл сюда</p>
+    </div>
     <div id="templateDialog">
         <p>Файл содержит несколько шаблонов. Выберите один:</p>
         <select id="templateSelect"></select>
@@ -93,7 +99,8 @@
                                 <span class="flex-grow-1">
                                     <i class="fas fa-code"></i> Редактор шаблонов Sprut.Hub
                                     <small class="d-block mt-1" style="font-size: 0.8em; opacity: 0.9;">
-                                        Создавайте, редактируйте, валидируйте и автоматически исправляйте шаблоны устройств
+                                        Создавайте, редактируйте, валидируйте и автоматически исправляйте шаблоны
+                                        устройств
                                     </small>
                                 </span>
                                 <div class="theme-toggle">
@@ -108,13 +115,19 @@
                             <div class="button-row-top">
                                 <div class="left-buttons">
                                     <input type="file" id="uploadFile" accept=".json" style="display: none;">
-                                    <input type="file" id="autoFixFileInput" accept=".json,.zip,application/gzip,application/x-gzip,application/x-tar,.gz,.tar.gz" style="display: none;">
+                                    <input type="file" id="autoFixFileInput"
+                                        accept=".json,.zip,application/gzip,application/x-gzip,application/x-tar,.gz,.tar.gz"
+                                        style="display: none;">
                                     <div style="display: flex; gap: 10px;">
                                         <button onclick="createEmptyTemplate()" class="btn btn-primary">
                                             <i class="fas fa-plus"></i> Создать
                                         </button>
-                                        <button onclick="document.getElementById('uploadFile').click()" class="btn btn-outline-primary">
+                                        <button onclick="document.getElementById('uploadFile').click()"
+                                            class="btn btn-outline-primary">
                                             <i class="fas fa-folder-open"></i> Открыть
+                                        </button>
+                                        <button id="openWizardTopBtn" class="btn btn-wizard" title="Мастер создания">
+                                            <i class="fa-solid fa-wand-magic-sparkles"></i> Мастер создания
                                         </button>
                                     </div>
                                 </div>
@@ -160,7 +173,7 @@
                             </div>
                             <div id="correctionOutput"></div>
                             <div id="errorOutput"></div>
-                            
+
                             <!-- Instructions Section -->
                             <div class="instructions-section">
                                 <div class="instructions-header">
@@ -180,14 +193,28 @@
                                         <h6>Вариант 2 (ручной):</h6>
                                         <ol>
                                             <li>Откройте файл шаблона</li>
-                                            <li>Если в одном файле содержится несколько шаблонов, то в появившемся окне выберите необходимый</li>
-                                            <li>Нажмите кнопку "Исправить под требования Sprut.hub" для автоматического исправления шаблона</li>
-                                            <li>Нажмите кнопку "Валидировать" для проверки шаблона согласно JSON Schema</li>
-                                            <li>Если в шаблоне есть ошибки валидации - нажмите "Попробовать исправить автоматически" и/или исправьте вручную</li>
+                                            <li>Если в одном файле содержится несколько шаблонов, то в появившемся окне
+                                                выберите необходимый</li>
+                                            <li>Нажмите кнопку "Исправить под требования Sprut.hub" для автоматического
+                                                исправления шаблона</li>
+                                            <li>Нажмите кнопку "Валидировать" для проверки шаблона согласно JSON Schema
+                                            </li>
+                                            <li>Если в шаблоне есть ошибки валидации - нажмите "Попробовать исправить
+                                                автоматически" и/или исправьте вручную</li>
                                             <li>Нажмите кнопку "Форматировать" для форматирования кода</li>
                                             <li>Скачайте шаблон</li>
                                             <li>Обновить шаблон в Sprut.hub</li>
                                         </ol>
+                                        <!--
+                                        <div class="mt-3" style="display:flex; gap:12px; flex-wrap:wrap;">
+                                          <a href="/sht/docs/templates.html" class="btn btn-primary btn-lg" target="_blank">
+                                            <i class="fas fa-book"></i> Документация по шаблонам
+                                          </a>
+                                          <a href="/sht/docs/editor-guide.html" class="btn btn-outline-primary btn-lg" target="_blank">
+                                            <i class="fas fa-list-check"></i> Инструкция по редактору
+                                          </a>
+                                        </div>
+                                        -->
                                     </div>
                                 </div>
                             </div>
@@ -208,7 +235,8 @@
                 </button>
             </div>
             <div class="service-types-search">
-                <input type="text" id="serviceTypesSearch" placeholder="Поиск по названию или типу сервиса..." class="form-control">
+                <input type="text" id="serviceTypesSearch" placeholder="Поиск по названию или типу сервиса..."
+                    class="form-control">
             </div>
             <div class="service-types-list" id="serviceTypesList">
                 <!-- Service types will be loaded here -->
@@ -222,11 +250,13 @@
             <div class="row">
                 <div class="col-md-6">
                     <h5>Следить за обновлениями</h5>
-                    <p>Отслеживайте новости о сценариях в Telegram-канале <a href="https://t.me/smart_sputnik" class="custom-link-blue">Умный Спутник</a></p>
+                    <p>Отслеживайте новости о сценариях в Telegram-канале <a href="https://t.me/smart_sputnik"
+                            class="custom-link-blue">Умный Спутник</a></p>
                 </div>
                 <div class="col-md-6 text-md-end">
                     <h5>Поддержать автора</h5>
-                    <p>Поддержите развитие проекта на <a href="https://boosty.to/smart_kirill" class="custom-link-blue">Boosty</a></p>
+                    <p>Поддержите развитие проекта на <a href="https://boosty.to/smart_kirill"
+                            class="custom-link-blue">Boosty</a></p>
                     <div class="social-links">
                         <a href="https://t.me/smart_sputnik"><i class="fab fa-telegram"></i></a>
                         <a href="https://github.com/KirillAshikhmin/Sprut.Hub_Tools"><i class="fab fa-github"></i></a>
@@ -236,7 +266,8 @@
             <hr class="my-4">
             <div class="row">
                 <div class="col-12 text-center">
-                    <p>&copy; 2025 Умный спутник.<br>Sprut.hub — зарегистрированный товарный знак. Все права на бренд Sprut.hub принадлежат его правообладателю: ИП Пономарев Дмитрий Алексеевич.</p>
+                    <p>&copy; 2025 Умный спутник.<br>Sprut.hub — зарегистрированный товарный знак. Все права на бренд
+                        Sprut.hub принадлежат его правообладателю: ИП Пономарев Дмитрий Алексеевич.</p>
                 </div>
             </div>
         </div>
@@ -329,8 +360,10 @@
             <div class="modal-select-header">
                 <button id="modalSelectBackBtn" class="modal-select-back" style="display:none;">
                     <svg width="40" height="40" viewBox="0 0 40 40">
-                        <polyline points="26,10 14,20 26,30" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                        <line x1="14" y1="20" x2="32" y2="20" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+                        <polyline points="26,10 14,20 26,30" stroke="currentColor" stroke-width="3.5" fill="none"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                        <line x1="14" y1="20" x2="32" y2="20" stroke="currentColor" stroke-width="3.5"
+                            stroke-linecap="round" />
                     </svg>
                 </button>
                 <span id="modalSelectTitle"></span>
@@ -344,6 +377,33 @@
         </div>
     </div>
 
+    <!-- Wizard: Template Builder -->
+    <div id="wizardDialog" class="modal-select-dialog" style="display:none;">
+        <div class="modal-select-content">
+            <div class="modal-select-header">
+                <button id="wizardBackBtn" class="modal-select-back" style="display:none;">
+                    <svg width="40" height="40" viewBox="0 0 40 40">
+                        <polyline points="26,10 14,20 26,30" stroke="currentColor" stroke-width="3.5" fill="none"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                        <line x1="14" y1="20" x2="32" y2="20" stroke="currentColor" stroke-width="3.5"
+                            stroke-linecap="round" />
+                    </svg>
+                </button>
+                <span id="wizardTitle">Мастер создания шаблона</span>
+                <button id="wizardCloseBtn" class="modal-select-close">×</button>
+            </div>
+            <div id="wizardBody" class="modal-select-list" style="padding:16px;">
+                <!-- dynamic body -->
+            </div>
+            <div id="wizardFooter" class="modal-select-footer">
+                <button id="wizardPrevBtn" class="toolbar-btn" style="display:none;">Назад</button>
+                <span style="flex:1 1 auto;"></span>
+                <button id="wizardNextBtn" class="toolbar-btn">Далее</button>
+                <button id="wizardDoneBtn" class="toolbar-btn" style="display:none;">Готово</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="scripts/utils.js"></script>
     <script src="scripts/corrections.js"></script>
@@ -354,4 +414,5 @@
     <script src="scripts/context-menu.js"></script>
     <script src="scripts/service-types.js"></script>
 </body>
+
 </html>
