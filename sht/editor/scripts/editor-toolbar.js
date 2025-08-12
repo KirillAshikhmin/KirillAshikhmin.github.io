@@ -157,6 +157,7 @@ window.initEditorToolbar = function() {
                 const json = JSON.parse(window.editor.getValue());
                 const svc = json.services[path[1].key];
                 if (svc && typeof window.startWizardAddCharacteristics === 'function') {
+                    const existingTypesForDialog = (svc.characteristics || []).map(c => c.type).filter(Boolean);
                     window.startWizardAddCharacteristics(svc.type, function(chars){
                         if (!Array.isArray(chars) || chars.length===0) return;
                         if (!Array.isArray(svc.characteristics)) svc.characteristics = [];
@@ -164,7 +165,7 @@ window.initEditorToolbar = function() {
                         window.editor.setValue(JSON.stringify(json, null, 2));
                         window.editor.refresh();
                         window.showToast('Характеристики добавлены через мастер', 'success');
-                    });
+                    }, existingTypesForDialog);
                     return;
                 }
             }
@@ -549,6 +550,8 @@ function addCharacteristic() {
             serviceDef = window.shTypes.find(s => s.type === serviceType);
         }
         
+        // Собираем уже существующие типы характеристик (для дизейбла в диалоге)
+        const existingTypesForDialog = new Set((service.characteristics || []).map(c => c.type));
         window.showCharacteristicSelectDialog(serviceDef || service, function(selectedChars) {
             if (!Array.isArray(selectedChars) || selectedChars.length === 0) {
                 window.showToast('Не выбраны характеристики', 'warning');
@@ -592,7 +595,7 @@ function addCharacteristic() {
                     window.showToast('Все выбранные характеристики уже есть в сервисе', 'warning');
                 }
             });
-        });
+        }, false, existingTypesForDialog);
     } catch (error) {
         window.showToast('Ошибка при добавлении характеристики: ' + error.message, 'error');
     }
@@ -951,7 +954,7 @@ window.showServiceSelectDialog = function(onServiceAdded) {
 };
 
 // Диалог выбора характеристик (required/optional, чекбоксы, секции)
-window.showCharacteristicSelectDialog = function(service, onDone, showBackButton = false) {
+window.showCharacteristicSelectDialog = function(service, onDone, showBackButton = false, existingTypesSet = null) {
     // Формируем массив характеристик с name и type
     const getCharObj = (t) => (typeof t === 'object' ? t : { type: t });
     const required = (service.required || []).map(getCharObj);
@@ -996,27 +999,33 @@ window.showCharacteristicSelectDialog = function(service, onDone, showBackButton
     let otherListId = 'modal-select-char-other-list';
     const listHtml = [
         sortedRequired.length ? `<div class='modal-select-char-section'>Обязательные характеристики</div>` : '',
-        ...sortedRequired.map((item, idx) =>
-            `<div class='modal-select-char-item'>
-                <span class='modal-select-char-title'>${item.name || item.type} <span style='font-size:11px;color:#888;'>(${item.type})</span></span>
-                <input type='checkbox' class='modal-select-char-checkbox' data-idx='${idx}' checked />
-            </div>`
-        ),
+        ...sortedRequired.map((item, idx) => {
+            const type = item.type;
+            const isExisting = existingTypesSet && existingTypesSet.has(type);
+            return `<div class='modal-select-char-item'>
+                <span class='modal-select-char-title'>${item.name || item.type} <span style='font-size:11px;color:#888;'>(${item.type})</span>${isExisting?` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>`:''}</span>
+                <input type='checkbox' class='modal-select-char-checkbox' data-idx='${idx}' ${isExisting?'disabled':''} ${isExisting?'': 'checked'} />
+            </div>`;
+        }),
         sortedOptional.length ? `<div class='modal-select-char-section'>Опциональные характеристики</div>` : '',
-        ...sortedOptional.map((item, idx) =>
-            `<div class='modal-select-char-item'>
-                <span class='modal-select-char-title'>${item.name || item.type} <span style='font-size:11px;color:#888;'>(${item.type})</span></span>
-                <input type='checkbox' class='modal-select-char-checkbox' data-idx='${sortedRequired.length + idx}' />
-            </div>`
-        ),
+        ...sortedOptional.map((item, idx) => {
+            const type = item.type;
+            const isExisting = existingTypesSet && existingTypesSet.has(type);
+            return `<div class='modal-select-char-item'>
+                <span class='modal-select-char-title'>${item.name || item.type} <span style='font-size:11px;color:#888;'>(${item.type})</span>${isExisting?` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>`:''}</span>
+                <input type='checkbox' class='modal-select-char-checkbox' data-idx='${sortedRequired.length + idx}' ${isExisting?'disabled':''} />
+            </div>`;
+        }),
         otherChars.length ? `<div class='modal-select-char-section' id='${otherSectionId}' style='cursor:pointer;user-select:none;'>Остальные характеристики <span style='font-size:smaller;color:#888;'>(устройства с нестандартными характеристиками могут не прокидываться в другие системы)</span> <span id='${otherSectionId}-arrow' style='font-size:12px;'>&#9654;</span></div>` : '',
         otherChars.length ? `<div id='${otherListId}' style='display:none;'>` : '',
-        ...otherChars.map((item, idx) =>
-            `<div class='modal-select-char-item'>
-                <span class='modal-select-char-title'>${item.name || item.type} <span style='font-size:11px;color:#888;'>(${item.type})</span></span>
-                <input type='checkbox' class='modal-select-char-checkbox' data-idx='${sortedRequired.length + sortedOptional.length + idx}' />
-            </div>`
-        ),
+        ...otherChars.map((item, idx) => {
+            const type = item.type;
+            const isExisting = existingTypesSet && existingTypesSet.has(type);
+            return `<div class='modal-select-char-item'>
+                <span class='modal-select-char-title'>${item.name || item.type} <span style='font-size:11px;color:#888;'>(${item.type})</span>${isExisting?` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>`:''}</span>
+                <input type='checkbox' class='modal-select-char-checkbox' data-idx='${sortedRequired.length + sortedOptional.length + idx}' ${isExisting?'disabled':''} />
+            </div>`;
+        }),
         otherChars.length ? `</div>` : ''
     ].join('');
     const dialog = document.getElementById('modalSelectDialog');
@@ -1056,14 +1065,15 @@ window.showCharacteristicSelectDialog = function(service, onDone, showBackButton
     // Обработка чекбоксов и клика по строке
     listEl.querySelectorAll('.modal-select-char-item').forEach((row, i) => {
         const cb = row.querySelector('.modal-select-char-checkbox');
-        // Только обязательные включены по умолчанию
-        if (i >= sortedRequired.length) cb.checked = false;
+        // Только обязательные включены по умолчанию (если не помечены как уже добавленные)
+        if (i >= sortedRequired.length && !cb.disabled) cb.checked = false;
         cb.addEventListener('change', function(e) {
             const idx = parseInt(cb.getAttribute('data-idx'), 10);
+            if (cb.disabled) return;
             if (cb.checked) selected.add(idx); else selected.delete(idx);
         });
         row.addEventListener('click', function(e) {
-            if (e.target === cb) return; // не переключать дважды
+            if (e.target === cb || cb.disabled) return; // не переключать дважды и не менять disabled
             cb.checked = !cb.checked;
             cb.dispatchEvent(new Event('change'));
         });

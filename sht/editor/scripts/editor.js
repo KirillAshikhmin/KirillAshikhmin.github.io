@@ -68,7 +68,19 @@ window.addEventListener('DOMContentLoaded', function () {
                     window.__suppressCursorPathUpdate = true;
                     window.editor.setCursor(targetPos);
                     window.editor.focus();
-                    setTimeout(() => { window.__suppressCursorPathUpdate = false; updateCursorPathMap(); }, 0);
+                    setTimeout(() => {
+                        window.__suppressCursorPathUpdate = false;
+                        try {
+                            window.lastCursorPosition = targetPos;
+                            if (typeof window.getCurrentJsonPath === 'function') {
+                                window.lastCursorPath = window.getCurrentJsonPath(window.editor);
+                            }
+                        } catch(_) {}
+                        updateCursorPathMap();
+                        if (typeof window.updateToolbarButtonsVisibility === 'function') {
+                            window.updateToolbarButtonsVisibility();
+                        }
+                    }, 0);
                 }
                 if (scrollRaw) {
                     const s = JSON.parse(scrollRaw);
@@ -263,6 +275,8 @@ window.addEventListener('DOMContentLoaded', function () {
                 if (!window.schemaHintsTree) {
                     console.error('Ошибка: Дерево подсказок не создано');
                 }
+                // Сообщаем частям UI (мастер и др.), что схема загружена – можно перерисоваться
+                try { document.dispatchEvent(new CustomEvent('schemaLoaded')); } catch(e) {}
             })
             .catch(error => {
                 console.error('Ошибка загрузки схемы:', error);
@@ -1700,7 +1714,6 @@ window.addEventListener('DOMContentLoaded', function () {
         if (!dlg) return;
         const titleEl = document.getElementById('wizardTitle');
         const bodyEl = document.getElementById('wizardBody');
-        const footerEl = document.getElementById('wizardFooter');
         const backBtn = document.getElementById('wizardBackBtn');
         const closeBtn = document.getElementById('wizardCloseBtn');
         const prevBtn = document.getElementById('wizardPrevBtn');
@@ -1717,8 +1730,76 @@ window.addEventListener('DOMContentLoaded', function () {
             serviceIdx: 0
         };
         let state = { ...defaultState };
+        // Множество типов характеристик, уже имеющихся в целевом сервисе редактора,
+        // когда мастер открыт в режиме добавления характеристик
+        let existingCharTypes = null; // Set<string> | null
+        // Подсказки для полей мастера
+        const FIELD_TIPS = {
+            // Верхний уровень шаблона
+            'template.manufacturer': 'Производитель устройства. Будет отображаться в карточке устройства.',
+            'template.model': 'Модель устройства.  Будет отображаться в карточке устройства.',
+            'template.manufacturerId': 'Идентификатор производителя.',
+            // Сервис
+            'service.name': 'Отображаемое имя сервиса в Sprut.Hub.',
+            'service.type': 'Тип сервиса. Можно посмотреть список нажав кнопку Типы сервисов.',
+            'service.visible': 'Показывать сервис в интерфейсе Sprut.Hub.',
+            'service.logics': 'Дополнительные логики (поведения) сервиса. Отметьте нужные.',
+            // Идентификаторы
+            'template.modelId.base': 'Идентификатор модели устройства.',
+            'template.modelId.mqtt': 'MQTT: путь топика с регулярным выражением.',
+            'template.catalogId': 'Идентификатор устройства в каталоге sprut.ai.',
+            // Характеристика
+            'char.minValue': 'Минимально допустимое значение характеристики.',
+            'char.maxValue': 'Максимально допустимое значение характеристики.',
+            'char.minStep': 'Шаг изменения значения.',
+            'char.unit': 'Единица измерения (например "°C", "%", "V").',
+            'char.read': 'Разрешено чтение значения характеристики из контроллера.',
+            'char.write': 'Разрешена запись/управление значением характеристики.',
+            'char.validValues': 'Список допустимых значений.',
+            // Link общие поля
+            'link.type': 'Тип входящих данных.',
+            'link.inFunc': 'Функция преобразования входящих данных (JS-выражение).',
+            'link.outFunc': 'Функция преобразования исходящих данных (JS-выражение).',
+            'link.map': 'Сопоставление входящих значений → внутренним.',
+            'link.outMap': 'Сопоставление исходящих значений → внешним.',
+            'link.scale': 'Масштабирование значения. Например, 0.1 или 10.',
+            'link.section': 'Привязка к данным контроллера: где читать и куда писать значение.',
+            // Контроллер-специфичные поля
+            'link.address': 'Адрес (регистра/устройства) для ModBus.',
+            'link.function': 'Код функции (ModBus function).',
+            'link.topicGet': 'MQTT топик для чтения значения (поддерживает группы из modelId).',
+            'link.topicSet': 'MQTT топик для записи значения (поддерживает группы из modelId).',
+            'link.endpoint': 'ZigBee endpoint устройства.',
+            'link.cluster': 'ZigBee cluster (идентификатор кластера).',
+            'link.attribute': 'ZigBee attribute (идентификатор атрибута).',
+            'link.class': 'Z-Wave Command Class.',
+            'link.value': 'Z-Wave Value ID.',
+            'link.id': 'Идентификатор для контроллера (например Xiaomi).',
+            'link.getProp': 'Имя свойства/команды получения значения (Xiaomi).',
+            'link.setProp': 'Имя свойства/команды установки значения (Xiaomi).',
+            // Опции
+            'option.name': 'Название опции, отображаемое в параметрах устройства.',
+            'option.inputType': 'Тип элемента управления в параметрах устройства (select, switch, number и т.п.).',
+            'options.note': 'Опции отображаются в Параметрах устройства.'
+        };
+        function escapeTipText(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+        function tipByKey(key, fallback) {
+            const text = FIELD_TIPS[key] || fallback || '';
+            return text ? ` <span class='help-icon' data-tip='${escapeTipText(text)}'>?</span>` : '';
+        }
+        function tipForLinkField(fieldName) {
+            return tipByKey(`link.${fieldName}`, 'Поле привязки контроллера.');
+        }
         // Экспортные режимы открытия отдельных шагов визарда
         let externalMode = null; // 'addService' | 'addCharacteristics' | 'addLink' | 'addOption'
+        let externalStartStep = null; // стартовый шаг для режима добавления
         let externalCallback = null;
         function finishExternal(payload) {
             try { if (typeof externalCallback === 'function') externalCallback(payload); } catch {}
@@ -1773,17 +1854,32 @@ window.addEventListener('DOMContentLoaded', function () {
         } catch {}
 
         function render() {
-            backBtn.style.display = '';
-            prevBtn.style.display = state.step > 0 ? '' : 'none';
+            const startStep = (typeof externalStartStep === 'number') ? externalStartStep : 0;
+            const canGoBack = state.step > startStep;
+            backBtn.style.display = canGoBack ? '' : 'none';
+            prevBtn.style.display = canGoBack ? '' : 'none';
             doneBtn.style.display = 'none';
             nextBtn.style.display = '';
             if (state.step === 0) renderTemplateMeta();
             else if (state.step === 1) renderServiceSelect();
             else if (state.step === 2) renderServiceForm();
             else if (state.step === 3) renderCharacteristicsSelect();
-            else if (state.step === 4) renderCharacteristicsForms();
+            else if (state.step === 4) {
+                if (externalMode === 'addLink') renderCharacteristicLinkWizard();
+                else renderCharacteristicsForms();
+            }
             else if (state.step === 5) renderOptionsStep();
         }
+
+        // Если схема подгружается после обновления страницы на середине мастера,
+        // перерисуем текущий шаг, чтобы заполнить логики и др. списки
+        document.addEventListener('schemaLoaded', () => {
+            try {
+                if (dlg.style.display !== 'none' && state && typeof state.step === 'number') {
+                    render();
+                }
+            } catch (e) {}
+        });
 
         // Публичные функции для запуска отдельных сценариев визарда
         window.startWizardAddService = function(onDone) {
@@ -1791,9 +1887,12 @@ window.addEventListener('DOMContentLoaded', function () {
             externalMode = 'addService';
             externalCallback = onDone;
             state = { ...defaultState, step: 1, inProgress: false, controller: document.getElementById('controllerSelect')?.value || '' };
+            // Сбрасываем выбранные ранее сервисы
+            state.selectedServices = [];
+            externalStartStep = 1;
             render(); open();
         };
-        window.startWizardAddCharacteristics = function(serviceType, onDone) {
+        window.startWizardAddCharacteristics = function(serviceType, onDone, existingTypes) {
             if (!serviceType) return;
             loadState();
             externalMode = 'addCharacteristics';
@@ -1801,6 +1900,8 @@ window.addEventListener('DOMContentLoaded', function () {
             state = { ...defaultState, step: 3, inProgress: false, controller: document.getElementById('controllerSelect')?.value || '' };
             state.template.services = [{ name: '', type: serviceType, visible: true, characteristics: [] }];
             state.serviceIdx = 0;
+            existingCharTypes = Array.isArray(existingTypes) ? new Set(existingTypes.filter(Boolean)) : null;
+            externalStartStep = 3;
             render(); open();
         };
         window.startWizardAddLink = function(serviceType, characteristicType, onDone) {
@@ -1811,7 +1912,9 @@ window.addEventListener('DOMContentLoaded', function () {
             state = { ...defaultState, step: 4, inProgress: false, controller: document.getElementById('controllerSelect')?.value || '' };
             state.template.services = [{ name: '', type: serviceType, visible: true, characteristics: [{ type: characteristicType, link: [] }] }];
             state.serviceIdx = 0;
-            render(); open();
+            externalStartStep = 4;
+            open();
+            renderCharacteristicLinkWizard();
         };
         window.startWizardAddOption = function(onDone) {
             loadState();
@@ -1825,11 +1928,12 @@ window.addEventListener('DOMContentLoaded', function () {
         function renderTemplateMeta() {
             titleEl.textContent = 'Данные шаблона';
             const isMQTT = (state.controller||'')==='MQTT';
-            const manuRow = `<div class='form-row'><label>Производитель</label><input id='w_manu' type='text' value='${state.template.manufacturer || ''}' /></div>`;
-            const modelRow = `<div class='form-row'><label>Модель</label><input id='w_model' type='text' value='${state.template.model || ''}' /></div>`;
-            const manuIdRow = isMQTT ? '' : `<div class='form-row'><label>manufacturerId</label><input id='w_manuId' type='text' value='${state.template.manufacturerId || ''}' /></div>`;
-            const modelIdRow = `<div class='form-row'><label>modelId <span class='help-icon' ${isMQTT?`data-tip='Топик для поиска устройства. Должен содержать регулярное выражение'`:"style=\"display:none;\""}>?</span></label><input id='w_modelId' type='text' value='${state.template.modelId || ''}' /></div>`;
-            const catalogIdRow = `<div class='form-row'><label>catalogId <span class='help-icon' data-tip='Идентификатор устройства в каталоге https://sprut.ai/catalog'>?</span></label><input id='w_catalogId' type='number' value='${state.template.catalogId || 0}' /></div>`;
+            const manuRow = `<div class='form-row'><label>Производитель${tipByKey('template.manufacturer')}</label><input id='w_manu' type='text' value='${state.template.manufacturer || ''}' /></div>`;
+            const modelRow = `<div class='form-row'><label>Модель${tipByKey('template.model')}</label><input id='w_model' type='text' value='${state.template.model || ''}' /></div>`;
+            const manuIdRow = isMQTT ? '' : `<div class='form-row'><label>manufacturerId${tipByKey('template.manufacturerId')}</label><input id='w_manuId' type='text' value='${state.template.manufacturerId || ''}' /></div>`;
+            const modelIdTip = isMQTT ? tipByKey('template.modelId.mqtt') : tipByKey('template.modelId.base');
+            const modelIdRow = `<div class='form-row'><label>modelId${modelIdTip}</label><input id='w_modelId' type='text' value='${state.template.modelId || ''}' /></div>`;
+            const catalogIdRow = `<div class='form-row'><label>catalogId${tipByKey('template.catalogId')}</label><input id='w_catalogId' type='number' value='${state.template.catalogId || 0}' /></div>`;
             bodyEl.innerHTML = manuRow + modelRow + manuIdRow + modelIdRow + catalogIdRow;
             nextBtn.onclick = () => {
                 state.template.manufacturer = document.getElementById('w_manu').value.trim();
@@ -1897,12 +2001,14 @@ window.addEventListener('DOMContentLoaded', function () {
             titleEl.textContent = `Параметры сервиса ${svcNameRu} (${state.serviceIdx+1}/${state.template.services.length})`;
             const logicEnum = (window.schema && window.schema.$defs && window.schema.$defs.logics && window.schema.$defs.logics.properties && window.schema.$defs.logics.properties.type && window.schema.$defs.logics.properties.type.enum) ? window.schema.$defs.logics.properties.type.enum : [];
             const selectedLogic = new Set((svc.logics||[]).map(l=>l.type));
-            const logicHtml = logicEnum.length ? `<div class='section-title' id='w_logic_toggle' style='cursor:pointer;user-select:none;'>Логика <span id='w_logic_arrow' style='font-size:12px;'>&#9654;</span></div>
-                <div class='service-block' id='w_logic_block' style='display:none;'>${logicEnum.map(t=>`<label style='display:block;'><input type='checkbox' data-logic='${t}' ${selectedLogic.has(t)?'checked':''}/> ${t}</label>`).join('')}</div>` : '';
+            const logicItemsHtml = logicEnum.map(t=>`<label style='display:block;'><input type='checkbox' data-logic='${t}' ${selectedLogic.has(t)?'checked':''}/> ${t}</label>`).join('');
+            const logicBlockInner = logicItemsHtml || `<div style='opacity:.7;font-size:13px;'>Нет доступных логик</div>`;
+            const logicHtml = `<div class='section-title' id='w_logic_toggle' style='cursor:pointer;user-select:none;'>Логика${tipByKey('service.logics')} <span id='w_logic_arrow' style='font-size:12px;'>&#9654;</span></div>
+                <div class='service-block' id='w_logic_block' style='display:none;'>${logicBlockInner}</div>`;
             bodyEl.innerHTML = `
-                <div class='form-row'><label>Название (name)</label><input id='w_svc_name' type='text' value='${svc.name || svcNameRu}'/></div>
-                <div class='form-row'><label>Тип (type)</label><input id='w_svc_type' type='text' value='${svc.type || ''}' disabled/></div>
-                <div class='form-row'><label>Видимый (visible)</label><input id='w_svc_visible' type='checkbox' ${svc.visible !== false ? 'checked' : ''}/></div>
+                <div class='form-row'><label>Название (name)${tipByKey('service.name')}</label><input id='w_svc_name' type='text' value='${svc.name || svcNameRu}'/></div>
+                <div class='form-row is-disabled'><label>Тип (type)${tipByKey('service.type')}</label><input id='w_svc_type' type='text' value='${svc.type || ''}' disabled/></div>
+                <div class='form-row'><label>Видимый (visible)${tipByKey('service.visible')}</label><input id='w_svc_visible' type='checkbox' ${svc.visible !== false ? 'checked' : ''}/></div>
                 ${logicHtml}
             `;
             // переключение разворота логики
@@ -1937,7 +2043,10 @@ window.addEventListener('DOMContentLoaded', function () {
             const opt = (def.optional || []).map(getObj).filter(c=>c.type!=='Name');
             // Автовыбор обязательных характеристик
             const selected = new Set((svc.characteristics||[]).map(c=>c.type));
-            req.forEach(c => { if (!selected.has(c.type)) { selected.add(c.type); svc.characteristics.push({ type: c.type, link: [] }); } });
+            // Автодобавление обязательных характеристик только в полном мастере, не при добавлении через тулбар
+            if (!externalMode) {
+                req.forEach(c => { if (!selected.has(c.type)) { selected.add(c.type); svc.characteristics.push({ type: c.type, link: [] }); } });
+            }
             // Список всех остальных типов из shTypes, которых нет в req/opt
             const usedTypes = new Set([...req, ...opt].map(c => c.type));
             let globalAll = [];
@@ -1955,19 +2064,28 @@ window.addEventListener('DOMContentLoaded', function () {
             };
             const others = globalAll.filter(c => !usedTypes.has(c.type) && c.type !== 'Name').sort(sortByName);
             const reqHtml = req.map(c=>{
-                const ch = selected.has(c.type)?'checked':'';
-                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span></label></div>`;
+                const exists = externalMode === 'addCharacteristics' && existingCharTypes && existingCharTypes.has(c.type);
+                const disabledAttr = exists ? 'disabled' : '';
+                const already = exists ? ` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>` : '';
+                const ch = selected.has(c.type) && !exists ? 'checked' : '';
+                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${disabledAttr} ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span>${already}</label></div>`;
             }).join('');
             const optHtml = opt.map(c=>{
-                const ch = selected.has(c.type)?'checked':'';
-                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span></label></div>`;
+                const exists = externalMode === 'addCharacteristics' && existingCharTypes && existingCharTypes.has(c.type);
+                const disabledAttr = exists ? 'disabled' : '';
+                const already = exists ? ` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>` : '';
+                const ch = selected.has(c.type) && !exists ? 'checked' : '';
+                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${disabledAttr} ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span>${already}</label></div>`;
             }).join('');
             const otherToggleId = 'w_char_other_toggle';
             const otherListId = 'w_char_other_list';
             const otherHeader = others.length ? `<div class='section-title' id='${otherToggleId}' style='cursor:pointer;user-select:none;'>Остальные характеристики <span style='font-size:smaller;color:#888;'>(устройства с нестандартными характеристиками могут не прокидываться в другие системы)</span> <span id='${otherToggleId}-arrow' style='font-size:12px;'>&#9654;</span></div>` : '';
             const otherItems = others.map(c=>{
-                const ch = selected.has(c.type)?'checked':'';
-                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span></label></div>`;
+                const exists = externalMode === 'addCharacteristics' && existingCharTypes && existingCharTypes.has(c.type);
+                const disabledAttr = exists ? 'disabled' : '';
+                const already = exists ? ` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>` : '';
+                const ch = selected.has(c.type) && !exists ? 'checked' : '';
+                return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${disabledAttr} ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span>${already}</label></div>`;
             }).join('');
             const otherBlock = others.length ? `<div id='${otherListId}' style='display:none;'>${otherItems}</div>` : '';
             bodyEl.innerHTML = `<div class='section-title'>Обязательные</div>${reqHtml || '<div>—</div>'}
@@ -1989,7 +2107,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 block.addEventListener('click', (e) => {
                     if (e.target.closest('input') || e.target.closest('label')) return;
                     const cb = block.querySelector('input[type="checkbox"]');
-                    if (!cb) return;
+                    if (!cb || cb.disabled) return;
                     cb.checked = !cb.checked;
                     cb.dispatchEvent(new Event('change', { bubbles: true }));
                 });
@@ -2005,7 +2123,25 @@ window.addEventListener('DOMContentLoaded', function () {
                     arrow.innerHTML = hidden ? '&#9660;' : '&#9654;';
                 });
             }
-            nextBtn.onclick = () => { state.step = 4; saveState(); scrollWizardTop(); render(); };
+            nextBtn.onclick = () => {
+                // Собираем отмеченные чекбоксы
+                const chosen = Array.from(bodyEl.querySelectorAll('input[type="checkbox"][data-type]:not(:disabled)'))
+                    .filter(cb => cb.checked)
+                    .map(cb => cb.getAttribute('data-type'));
+                if (!chosen.length) {
+                    window.showToast('Выберите хотя бы одну характеристику', 'warning');
+                    return;
+                }
+                // В режимах добавления (сервис/характеристики) фиксируем выбранные, не переносим автоматически обязательные
+                if (externalMode === 'addCharacteristics' || externalMode === 'addService') {
+                    const typesSet = new Set(chosen);
+                    const keep = (svc.characteristics||[]).filter(ch => typesSet.has(ch.type));
+                    const needToAdd = chosen.filter(t => !keep.some(ch => ch.type === t));
+                    const added = needToAdd.map(t => ({ type: t, link: [] }));
+                    svc.characteristics = [...keep, ...added];
+                }
+                state.step = 4; saveState(); scrollWizardTop(); render();
+            };
             prevBtn.onclick = () => { state.step = 2; saveState(); render(); };
         }
 
@@ -2061,9 +2197,15 @@ window.addEventListener('DOMContentLoaded', function () {
                     baseFields.forEach(f=>allFields.add(f));
                     allFields.add('inFunc');
                     allFields.add('outFunc');
+                    allFields.add('link');
+                    // Для числовых форматов добавим scale по умолчанию
+                    if ((charDef && (charDef.format === 'Double' || charDef.format === 'Integer')) || (c && (c.format === 'Double' || c.format === 'Integer'))) {
+                        allFields.add('scale');
+                    }
                     let rows = Array.from(allFields).map(f=>{
                         const v = lnk[f] ?? '';
-                        return `<div class='kv-row'><label style='min-width:160px;'>${f}</label><input type='text' data-char='${idx}' data-link='${li}' data-field='${f}' value='${v}' /></div>`;
+                        const help = (f === 'map' || f === 'outMap' || f === 'inFunc' || f === 'outFunc' || f === 'scale') ? tipByKey(`link.${f}`) : tipForLinkField(f);
+                        return `<div class='kv-row'><label style='min-width:160px;'>${f}${help}</label><input type='text' data-char='${idx}' data-link='${li}' data-field='${f}' value='${v}' /></div>`;
                     }).join('');
                     // map/outMap редактор (динамические пары)
                     const mapPairs = lnk.map || {};
@@ -2071,17 +2213,17 @@ window.addEventListener('DOMContentLoaded', function () {
                     const renderPairs = (pairs, group) => {
                         const entries = Object.entries(pairs);
                         const list = entries.map(([k, val], pi)=>
-                            `<div class='kv-row'><label style='min-width:160px;'>${group}[${pi}]</label><input type='text' data-char='${idx}' data-link='${li}' data-${group}-key='${pi}' value='${k}' />
+                            `<div class='kv-row'><label style='min-width:160px;'>${group}[${pi}]${tipByKey(`link.${group}`)}</label><input type='text' data-char='${idx}' data-link='${li}' data-${group}-key='${pi}' value='${k}' />
                              <input type='text' data-char='${idx}' data-link='${li}' data-${group}-val='${pi}' value='${val}' />
                              <button class='remove-btn' data-char='${idx}' data-link='${li}' data-remove-${group}='${pi}'>−</button></div>`
                         ).join('');
                         const addLabel = entries.length ? 'Добавить поле' : `Добавить ${group}`;
                         const add = `<div class='kv-row'><button class='toolbar-btn' data-char='${idx}' data-link='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
-                        return `<div class='section-title'>${group}</div>${list}${add}`;
+                        return `<div class='section-title'>${group}${tipByKey(`link.${group}`)}</div>${list}${add}`;
                     };
                     rows += renderPairs(mapPairs, 'map');
                     rows += renderPairs(outMapPairs, 'outMap');
-                    const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
+                    const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type${tipByKey('link.type')}</label>
                         <select data-char='${idx}' data-link='${li}' data-field='type'>
                             <option value=''></option>
                             ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
@@ -2094,17 +2236,17 @@ window.addEventListener('DOMContentLoaded', function () {
                 // параметры характеристики (скрываем числовые/единицы для Boolean и String)
                 const isBoolean = charDef && charDef.format === 'Boolean';
                 const isString = charDef && charDef.format === 'String';
-                const minRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minValue</label><input type='number' data-charp='${idx}' data-prop='minValue' data-default='${charDef?.minValue ?? ''}' value='${c.minValue ?? ''}' /></div>`;
-                const maxRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>maxValue</label><input type='number' data-charp='${idx}' data-prop='maxValue' data-default='${charDef?.maxValue ?? ''}' value='${c.maxValue ?? ''}' /></div>`;
-                const stepRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minStep</label><input type='number' data-charp='${idx}' data-prop='minStep' data-default='${charDef?.minStep ?? ''}' value='${c.minStep ?? ''}' /></div>`;
-                const unitRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>unit</label><input type='text' data-charp='${idx}' data-prop='unit' data-default='${charDef?.unit ?? ''}' value='${c.unit || ''}' /></div>`;
-                const rRow = `<div class='kv-row'><label style='min-width:160px;'>read</label><input type='checkbox' data-charp='${idx}' data-prop='read' data-default='${!!charDef?.read}' ${ (typeof c.read === 'undefined' ? (!!charDef?.read ? 'checked' : '') : (c.read ? 'checked' : '')) } /></div>`;
-                const wRow = `<div class='kv-row'><label style='min-width:160px;'>write</label><input type='checkbox' data-charp='${idx}' data-prop='write' data-default='${!!charDef?.write}' ${ (typeof c.write === 'undefined' ? (!!charDef?.write ? 'checked' : '') : (c.write ? 'checked' : '')) } /></div>`;
+                const minRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minValue${tipByKey('char.minValue')}</label><input type='number' data-charp='${idx}' data-prop='minValue' data-default='${charDef?.minValue ?? ''}' value='${c.minValue ?? ''}' /></div>`;
+                const maxRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>maxValue${tipByKey('char.maxValue')}</label><input type='number' data-charp='${idx}' data-prop='maxValue' data-default='${charDef?.maxValue ?? ''}' value='${c.maxValue ?? ''}' /></div>`;
+                const stepRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minStep${tipByKey('char.minStep')}</label><input type='number' data-charp='${idx}' data-prop='minStep' data-default='${charDef?.minStep ?? ''}' value='${c.minStep ?? ''}' /></div>`;
+                const unitRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>unit${tipByKey('char.unit')}</label><input type='text' data-charp='${idx}' data-prop='unit' data-default='${charDef?.unit ?? ''}' value='${c.unit || ''}' /></div>`;
+                const rRow = `<div class='kv-row'><label style='min-width:160px;'>read${tipByKey('char.read')}</label><input type='checkbox' data-charp='${idx}' data-prop='read' data-default='${!!charDef?.read}' ${ (typeof c.read === 'undefined' ? (!!charDef?.read ? 'checked' : '') : (c.read ? 'checked' : '')) } /></div>`;
+                const wRow = `<div class='kv-row'><label style='min-width:160px;'>write${tipByKey('char.write')}</label><input type='checkbox' data-charp='${idx}' data-prop='write' data-default='${!!charDef?.write}' ${ (typeof c.write === 'undefined' ? (!!charDef?.write ? 'checked' : '') : (c.write ? 'checked' : '')) } /></div>`;
                 // validValues — показываем из enum или validValues
                 let vvHtml = '';
                 if (validKeys.length) {
                     const current = new Set((c.validValues||'').split(',').map(s=>s.trim()).filter(Boolean));
-                    vvHtml = `<div class='section-title'>validValues</div>` +
+                    vvHtml = `<div class='section-title'>validValues${tipByKey('char.validValues')}</div>` +
                         `<div class='service-block'>` +
                         validKeys.map(name => {
                             const ch = current.has(name) ? 'checked' : '';
@@ -2113,7 +2255,7 @@ window.addEventListener('DOMContentLoaded', function () {
                         `</div>`;
                 }
                 const header = `<div class='section-title'>Параметры характеристики ${charNameRu} (${c.type}) у ${svc.name || 'NAME'} (${svcNameRu})</div>`;
-                return `<div class='char-block'>${header}${minRow}${maxRow}${stepRow}${unitRow}${rRow}${wRow}${vvHtml}<div class='section-title'>Link</div>${linksBlocks}${addLinkBtn}</div>`;
+                return `<div class='char-block'>${header}${minRow}${maxRow}${stepRow}${unitRow}${rRow}${wRow}${vvHtml}<div class='section-title'>Link${tipByKey('link.section')}</div>${linksBlocks}${addLinkBtn}</div>`;
             }).join('');
             bodyEl.innerHTML = charHtml || '<div>Нет выбранных характеристик</div>';
             // Обработчики
@@ -2285,7 +2427,96 @@ window.addEventListener('DOMContentLoaded', function () {
                     }
                 };
             }
-            prevBtn.onclick = () => { state.step = 3; saveState(); render(); };
+            // В режиме добавления линка рисуем отдельный мастер без шага назад к выбору характеристик
+            if (externalMode === 'addLink') {
+                prevBtn.style.display = 'none';
+            } else {
+                prevBtn.onclick = () => { state.step = 3; saveState(); render(); };
+            }
+        }
+
+        // Упрощённый экран редактирования только Link для внешнего режима добавления линка
+        function renderCharacteristicLinkWizard() {
+            const svc = state.template.services[state.serviceIdx];
+            const ch = (svc.characteristics || [])[0] || { type: '', link: [] };
+            const svcDef = (window.shTypes||[]).find(s=>s.type===svc.type);
+            const charType = ch.type;
+            const controller = document.getElementById('controllerSelect')?.value || state.controller;
+            const ctrlFields = (window.controllerLinkFields && controller) ? window.controllerLinkFields[controller] : null;
+            const required = ctrlFields ? (ctrlFields.required || []) : [];
+            const readField = ctrlFields ? ctrlFields.read : null;
+            const writeField = ctrlFields ? ctrlFields.write : null;
+            const linkTypeEnum = (window.schema && window.schema.$defs && window.schema.$defs.link && window.schema.$defs.link.properties && window.schema.$defs.link.properties.type && window.schema.$defs.link.properties.type.enum) ? window.schema.$defs.link.properties.type.enum : [];
+            titleEl.textContent = `Link для ${charType}`;
+            if (!Array.isArray(ch.link) || ch.link.length === 0) {
+                const init = { type: '' };
+                const base = new Set(required);
+                if (readField) base.add(readField);
+                if (writeField) base.add(writeField);
+                Array.from(base).forEach(f => { init[f] = ''; });
+                ch.link = [init];
+            }
+            const blocks = ch.link.map((lnk, li) => {
+                const allFields = new Set(Object.keys(lnk).filter(k=>k!=='type' && k!=='map' && k!=='outMap'));
+                required.forEach(f=>allFields.add(f));
+                if (readField) allFields.add(readField);
+                if (writeField) allFields.add(writeField);
+                allFields.add('inFunc');
+                allFields.add('outFunc');
+                const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type${tipByKey('link.type')}</label>
+                        <select data-char='0' data-link='${li}' data-field='type'>
+                            <option value=''></option>
+                            ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
+                        </select>
+                        <button class='remove-btn remove-link-btn' data-char='0' data-remove-link='${li}'>✕</button>
+                    </div>`;
+                const rows = Array.from(allFields).map(f=>{
+                    const v = lnk[f] ?? '';
+                    const help = (f === 'map' || f === 'outMap' || f === 'inFunc' || f === 'outFunc' || f === 'scale') ? tipByKey(`link.${f}`) : tipForLinkField(f);
+                    return `<div class='kv-row'><label style='min-width:160px;'>${f}${help}</label><input type='text' data-char='0' data-link='${li}' data-field='${f}' value='${v}' /></div>`;
+                }).join('');
+                return `<div class='service-block link-block'><div class='link-title'>Линк ${li+1}</div>${typeSel}${rows}</div>`;
+            }).join('');
+            const addBtn = `<div style='margin:8px 0;'><button class='toolbar-btn' data-add-link='0'>Добавить линк</button></div>`;
+            bodyEl.innerHTML = `<div class='section-title'>Link${tipByKey('link.section')}</div>${blocks}${addBtn}`;
+            // бинды
+            bodyEl.querySelectorAll('input[data-char], select[data-char]').forEach(inp => {
+                inp.addEventListener('input', () => {
+                    const li = parseInt(inp.getAttribute('data-link'),10) || 0;
+                    const field = inp.getAttribute('data-field');
+                    if (!Array.isArray(ch.link)) ch.link = [];
+                    if (!ch.link[li]) ch.link[li] = {};
+                    ch.link[li][field] = inp.value;
+                    saveState();
+                });
+            });
+            bodyEl.querySelectorAll('button[data-add-link]').forEach(btn => {
+                btn.addEventListener('click', (e)=>{
+                    e.preventDefault();
+                    if (!Array.isArray(ch.link)) ch.link = [];
+                    const init = { type: '' };
+                    const base = new Set(required); if (readField) base.add(readField); if (writeField) base.add(writeField);
+                    Array.from(base).forEach(f => { init[f] = ''; });
+                    ch.link.push(init);
+                    saveState();
+                    renderCharacteristicLinkWizard();
+                });
+            });
+            bodyEl.querySelectorAll('button.remove-link-btn').forEach(btn => {
+                btn.addEventListener('click', (e)=>{
+                    e.preventDefault();
+                    const li = parseInt(btn.getAttribute('data-remove-link'),10)||0;
+                    ch.link.splice(li,1);
+                    saveState();
+                    renderCharacteristicLinkWizard();
+                });
+            });
+            // управление кнопками: в addLink нет Next, есть Done
+            nextBtn.style.display = 'none';
+            doneBtn.style.display = '';
+            doneBtn.onclick = () => {
+                finishExternal(JSON.parse(JSON.stringify(ch.link || [])));
+            };
         }
 
         function renderOptionsStep() {
@@ -2314,6 +2545,10 @@ window.addEventListener('DOMContentLoaded', function () {
                     (svc.characteristics||[]).forEach(ch => {
                         if (Array.isArray(ch.link)) {
                             ch.link.forEach(lnk => {
+                                // Удаляем пустой scale, чтобы не попадал в итоговый шаблон
+                                if (lnk && (lnk.scale === '' || typeof lnk.scale === 'undefined')) {
+                                    delete lnk.scale;
+                                }
                                 ['map','outMap'].forEach(g => {
                                     if (lnk && lnk[g]) {
                                         const obj = {};
@@ -2328,6 +2563,9 @@ window.addEventListener('DOMContentLoaded', function () {
                 (finalTemplate.options||[]).forEach(opt => {
                     if (Array.isArray(opt.link)) {
                         opt.link.forEach(lnk => {
+                            if (lnk && (lnk.scale === '' || typeof lnk.scale === 'undefined')) {
+                                delete lnk.scale;
+                            }
                             ['map','outMap'].forEach(g => {
                                 if (lnk && lnk[g]) {
                                     const obj = {};
@@ -2359,11 +2597,12 @@ window.addEventListener('DOMContentLoaded', function () {
             const opt = { name: '', inputType: (types[0]||''), link: [{}] };
             // Единый шаг: выбор inputType+name и Link
             bodyEl.innerHTML = `
-                <div class='form-row'><label>Имя (name)</label><input id='w_opt_name2' type='text' value='${opt.name}'/></div>
-                <div class='form-row'><label>Тип опции (inputType)</label>
+                <div style='font-size:13px; opacity:.85; margin: -4px 0 8px 0;'>${escapeTipText(FIELD_TIPS['options.note'])}</div>
+                <div class='form-row'><label>Имя (name)${tipByKey('option.name')}</label><input id='w_opt_name2' type='text' value='${opt.name}'/></div>
+                <div class='form-row'><label>Тип опции (inputType)${tipByKey('option.inputType')}</label>
                     <select id='w_opt_type2'>${types.map(t=>`<option value='${t}' ${opt.inputType===t?'selected':''}>${t}</option>`).join('')}</select>
                 </div>
-                <div class='section-title'>Link</div>
+                <div class='section-title'>Link${tipByKey('link.section')}</div>
                 <div id='w_opt_links'></div>
                 <div style='margin:8px 0;'><button class='toolbar-btn' id='w_opt_add_link'>Добавить линк</button></div>
             `;
@@ -2379,26 +2618,33 @@ window.addEventListener('DOMContentLoaded', function () {
                 if (writeField) fields.add(writeField);
                 const cont = document.getElementById('w_opt_links');
                 cont.innerHTML = (opt.link||[]).map((lnk, li)=>{
+                    // Инициализируем отсутствующие базовые поля пустыми строками, чтобы они попали в итоговый JSON
+                    if (typeof lnk.type === 'undefined') lnk.type = '';
+                    Array.from(fields).forEach(f => { if (typeof lnk[f] === 'undefined') lnk[f] = ''; });
                     // те же элементы, что и у характеристики: type, поля, map/outMap, заголовок
                     const allFields = new Set(Object.keys(lnk).filter(k=>k!=='type' && k!=='map' && k!=='outMap'));
                     fields.forEach(f=>allFields.add(f));
                     allFields.add('inFunc');
                     allFields.add('outFunc');
-                    let rows = Array.from(allFields).map(f => `<div class='kv-row'><label style='min-width:160px;'>${f}</label><input type='text' data-optlink='${li}' data-field='${f}' value='${lnk[f]||''}' /></div>`).join('');
+                    allFields.add('link');
+                    let rows = Array.from(allFields).map(f => {
+                        const help = (f === 'map' || f === 'outMap' || f === 'inFunc' || f === 'outFunc') ? tipByKey(`link.${f}`) : tipForLinkField(f);
+                        return `<div class='kv-row'><label style='min-width:160px;'>${f}${help}</label><input type='text' data-optlink='${li}' data-field='${f}' value='${lnk[f]||''}' /></div>`;
+                    }).join('');
                     const renderPairs = (pairs, group) => {
                         const entries = Object.entries(pairs||{});
                         const list = entries.map(([k, val], pi)=>
-                            `<div class='kv-row'><label style='min-width:160px;'>${group}[${pi}]</label><input type='text' data-optlink='${li}' data-${group}-key='${pi}' value='${k}' />
+                            `<div class='kv-row'><label style='min-width:160px;'>${group}[${pi}]${tipByKey(`link.${group}`)}</label><input type='text' data-optlink='${li}' data-${group}-key='${pi}' value='${k}' />
                              <input type='text' data-optlink='${li}' data-${group}-val='${pi}' value='${val}' />
                              <button class='remove-btn' data-optlink='${li}' data-remove-${group}='${pi}'>−</button></div>`
                         ).join('');
                         const addLabel = entries.length ? 'Добавить поле' : `Добавить ${group}`;
                         const add = `<div class='kv-row'><button class='toolbar-btn' data-optlink='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
-                        return `<div class='section-title'>${group}</div>${list}${add}`;
+                        return `<div class='section-title'>${group}${tipByKey(`link.${group}`)}</div>${list}${add}`;
                     };
                     rows += renderPairs(lnk.map, 'map');
                     rows += renderPairs(lnk.outMap, 'outMap');
-                    const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
+                    const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type${tipByKey('link.type')}</label>
                         <select data-optlink='${li}' data-field='type'>
                             <option value=''></option>
                             ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
@@ -2507,7 +2753,12 @@ window.addEventListener('DOMContentLoaded', function () {
                     renderOptionsStep();
                 };
             }
-            prevBtn.onclick = () => { renderOptionsStep(); };
+            // В режиме добавления опции через кнопку — скрываем «Назад» и верхнюю кнопку назад на стартовом шаге
+            if (externalMode === 'addOption') {
+                prevBtn.style.display = 'none';
+            } else {
+                prevBtn.onclick = () => { renderOptionsStep(); };
+            }
         }
 
         function renderOptionParams(opt) {
@@ -2522,6 +2773,9 @@ window.addEventListener('DOMContentLoaded', function () {
             if (readField) fields.add(readField);
             if (writeField) fields.add(writeField);
             const linkBlocks = (Array.isArray(opt.link)?opt.link:[]).map((lnk, li)=>{
+                // Проставить базовые поля пустыми, чтобы попали в JSON, даже если пользователь не менял
+                if (typeof lnk.type === 'undefined') lnk.type = '';
+                Array.from(fields).forEach(f => { if (typeof lnk[f] === 'undefined') lnk[f] = ''; });
                 const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
                     <select data-optlink='${li}' data-field='type'>
                         <option value=''></option>
@@ -2534,9 +2788,10 @@ window.addEventListener('DOMContentLoaded', function () {
             }).join('');
             const addLinkBtn = `<div style='margin:8px 0;'><button class='toolbar-btn' id='w_opt_add_link'>Добавить линк</button></div>`;
             const body = `
-                <div class='form-row'><label>Имя (name)</label><input id='w_opt_name2' type='text' value='${opt.name||''}'/></div>
-                <div class='form-row'><label>Тип опции (inputType)</label><input id='w_opt_type2' type='text' value='${opt.inputType||''}' disabled/></div>
-                <div class='section-title'>Link</div>
+                <div style='font-size:13px; opacity:.85; margin: -4px 0 8px 0;'>${escapeTipText(FIELD_TIPS['options.note'])}</div>
+                <div class='form-row'><label>Имя (name)${tipByKey('option.name')}</label><input id='w_opt_name2' type='text' value='${opt.name||''}'/></div>
+                <div class='form-row is-disabled'><label>Тип опции (inputType)${tipByKey('option.inputType')}</label><input id='w_opt_type2' type='text' value='${opt.inputType||''}' disabled/></div>
+                <div class='section-title'>Link${tipByKey('link.section')}</div>
                 ${linkBlocks || '<div class="service-block">Нет линков</div>'}
                 ${addLinkBtn}
             `;

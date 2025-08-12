@@ -11,6 +11,7 @@
     --card-bg: #ffffff;
     --border-color: #e0e0e0;
     --shadow-color: rgba(0, 0, 0, 0.1);
+    --muted-text-color: #6b7280;
 }
 
 body.dark {
@@ -26,6 +27,7 @@ body.dark {
     --card-bg: #2d2d2d;
     --border-color: #444444;
     --shadow-color: rgba(0, 0, 0, 0.3);
+    --muted-text-color: #a1a1aa;
 }
 
 body {
@@ -605,7 +607,7 @@ body.dark #correctionOutput ul {
     top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 10000;
+    z-index: 20000;
     pointer-events: none;
 }
 
@@ -861,6 +863,13 @@ body.dark #correctionOutput ul {
     cursor: pointer;
 }
 #wizardDialog .remove-btn:hover { filter: brightness(0.95); }
+
+/* Disabled fields visual emphasis */
+#wizardDialog .form-row.is-disabled input[disabled],
+#wizardDialog .form-row.is-disabled select[disabled] {
+    color: var(--muted-text-color);
+    opacity: 0.75;
+}
 
 /* Help icon */
 .help-icon {
