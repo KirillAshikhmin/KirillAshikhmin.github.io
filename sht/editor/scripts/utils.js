@@ -25,11 +25,16 @@ window.applyTheme = function(theme) {
     // Добавляем текущий класс
     document.body.classList.add(theme);
     
-    // Обновляем тему CodeMirror
-    if (window.editor) {
-        window.editor.setOption('theme', theme === 'dark' ? 'dracula' : 'default');
-    }
+    // Обновляем тему редактора (CM6 shim: опция темы не требуется; переключаем класс на body)
+    // Стили завязаны на body.light/body.dark
     
+    // Переключаем подсветку CM6 через шим
+    try {
+        if (window.editor && typeof window.editor.setTheme === 'function') {
+            window.editor.setTheme(theme);
+        }
+    } catch(_) {}
+
     // Обновляем иконку переключателя
     updateThemeToggleIcon(theme);
 };

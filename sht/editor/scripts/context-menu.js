@@ -418,7 +418,7 @@ function bindGlobalShortcuts() {
     document.addEventListener('keydown', function(e){
         // Не мешаем, если открыт ввод текста в обычных инпутах вне CodeMirror
         const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-        const isEditor = !!(e.target && e.target.closest && e.target.closest('.CodeMirror'));
+        const isEditor = !!(e.target && e.target.closest && (e.target.closest('.CodeMirror') || e.target.closest('.cm-editor')));
         if (!isEditor && (tag === 'input' || tag === 'select' || tag === 'textarea')) return;
 
         const fire = (action)=>{

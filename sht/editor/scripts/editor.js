@@ -2,6 +2,360 @@
 // Модуль для инициализации редактора, автокомплита и работы с DOM
 // Глобальные функции для использования в index.html и других js-файлах
 
+// -----------------------------
+// CodeMirror 6 compatibility shim for CM5 API
+// -----------------------------
+import {EditorState, EditorSelection, Compartment} from "https://esm.sh/@codemirror/state@6";
+import {EditorView, keymap, drawSelection} from "https://esm.sh/@codemirror/view@6";
+import {history, historyKeymap, defaultKeymap} from "https://esm.sh/@codemirror/commands@6";
+import {defaultHighlightStyle, syntaxHighlighting, foldGutter, HighlightStyle} from "https://esm.sh/@codemirror/language@6";
+import {json} from "https://esm.sh/@codemirror/lang-json@6";
+import {autocompletion, startCompletion, closeCompletion, completionKeymap} from "https://esm.sh/@codemirror/autocomplete@6";
+import {searchKeymap, openSearchPanel} from "https://esm.sh/@codemirror/search@6";
+import {tags} from "https://esm.sh/@lezer/highlight@1";
+import { buildSuggestions, getCurrentJsonPath, getHintsForPathImproved, customJsonHint as customJsonHintImpl } from './hints.js';
+
+(function initCM6Shim(){
+  if (window.__cm6ShimInitialized) return;
+  window.__cm6ShimInitialized = true;
+
+  function lineChToOffset(view, pos){
+    const line = view.state.doc.line((pos.line|0) + 1);
+    return Math.max(line.from, Math.min(line.to, line.from + (pos.ch|0)));
+  }
+  function offsetToLineCh(view, offset){
+    const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, offsetToLine(view, offset))));
+    const lineObj = view.state.doc.lineAt(offset);
+    return { line: lineObj.number - 1, ch: offset - lineObj.from };
+  }
+  function offsetToLine(view, offset){
+    try { return view.state.doc.lineAt(offset).number; } catch { return 1; }
+  }
+
+  // Shared store for CM5 hint helpers
+  let registeredJsonHintHelper = null;
+
+  function createCompletionSource(adapter){
+    return (context)=>{
+      if (!registeredJsonHintHelper) return null;
+
+      const view = adapter.view;
+      // CM5-like shim object passed into helper
+      const cmShim = {
+        getCursor(){
+          const head = view.state.selection.main.head;
+          const line = view.state.doc.lineAt(head);
+          return { line: line.number - 1, ch: head - line.from };
+        },
+        getLine(n){ return view.state.doc.line((n|0) + 1).text; },
+        getValue(){ return view.state.doc.toString(); },
+        getTokenAt(pos){
+          try {
+            const lineObj = view.state.doc.line((pos.line|0) + 1);
+            const lineText = lineObj.text;
+            const ch = Math.max(0, Math.min(lineText.length, pos.ch|0));
+            // Detect inside string by scanning for unescaped quotes
+            let inString = false, start = 0, i = 0;
+            while (i < ch){
+              const c = lineText[i];
+              if (c === '"' && lineText[i-1] !== '\\') inString = !inString, start = i;
+              i++;
+            }
+            if (inString){
+              // Find end quote to compute token end
+              let j = ch; let end = lineText.length;
+              while (j < lineText.length){
+                if (lineText[j] === '"' && lineText[j-1] !== '\\'){ end = j+1; break; }
+                j++;
+              }
+              const str = lineText.slice(start, Math.max(end, ch));
+              const before = lineText.slice(0, ch);
+              const hasColon = /:\s*$.*/.test(before) || before.includes(':');
+              return { string: str, type: 'string', start, end: Math.max(end, ch), state: { lastType: hasColon ? 'colon' : null } };
+            }
+            // Not in string: best-effort word token
+            const before = lineText.slice(0, ch);
+            const after = lineText.slice(ch);
+            const m1 = before.match(/[\w$"']+$/);
+            const m2 = after.match(/^[\w$"']*/);
+            const s = m1 ? ch - m1[0].length : ch;
+            const e = m2 ? ch + m2[0].length : ch;
+            const tok = lineText.slice(s, e) || '';
+            const hasColon = /:\s*$/.test(before);
+            return { string: tok, type: null, start: s, end: e, state: { lastType: hasColon ? 'colon' : null } };
+          } catch {
+            return { string: '', type: null, start: pos.ch|0, end: pos.ch|0, state: {} };
+          }
+        },
+        replaceSelection(text){
+          const tr = view.state.replaceSelection(text);
+          view.dispatch(tr);
+        },
+        replaceRange(text, from, to){
+          const insert = String(text || '');
+          const f = lineChToOffset(view, from);
+          const t = to ? lineChToOffset(view, to) : f;
+          const anchor = f + insert.length;
+          view.dispatch({ changes: { from: f, to: t, insert }, selection: { anchor } });
+        },
+        setCursor(pos){
+          const at = lineChToOffset(view, pos);
+          view.dispatch({ selection: { anchor: at } });
+          view.focus();
+        },
+        getSelection(){
+          const r = view.state.selection.main;
+          return view.state.sliceDoc(r.from, r.to);
+        },
+        execCommand(cmd){
+          if (cmd === 'autocomplete') startCompletion(view);
+          if (cmd === 'closeCompletion') closeCompletion(view);
+        }
+      };
+
+      // Build hints via extracted hints module
+      let res = null;
+      try { res = customJsonHintImpl(cmShim); } catch {}
+      if (!res || !Array.isArray(res.list)) {
+        try {
+          let path = getCurrentJsonPath(cmShim) || [];
+          // Попробовать использовать карту пути курсора, если она богаче
+          try {
+            if (Array.isArray(window.currentJsonCursorPath)) {
+              const mapPath = window.currentJsonCursorPath.map(p => p && p.key).filter(k => typeof k === 'string');
+              const hasKnown = (arr)=>Array.isArray(arr) && arr.some(k=>k==='services' || k==='characteristics' || k==='link' || k==='options');
+              if (!path.length || (hasKnown(mapPath) && (!hasKnown(path) || mapPath.length > path.length))) {
+                path = mapPath;
+              }
+            }
+          } catch {}
+          const schemaNode = getHintsForPathImproved(path, window.schemaHintsTree);
+          const built = buildSuggestions(cmShim, schemaNode, path, window.schema);
+          res = { list: built.list, from: { line: cmShim.getCursor().line, ch: built.fromCh }, to: { line: cmShim.getCursor().line, ch: built.toCh } };
+        } catch {}
+      }
+      if (!res || !Array.isArray(res.list)) return null;
+
+      // Compute from/to offsets
+      const fromPos = res.from && typeof res.from.line === 'number' ? lineChToOffset(view, res.from) : context.pos;
+      const toPos = res.to && typeof res.to.line === 'number' ? lineChToOffset(view, res.to) : context.pos;
+
+      return {
+        from: fromPos,
+        to: toPos,
+        options: res.list.map(item => ({
+          label: String(item.displayText || item.text || ''),
+          apply(v, completion, from, to){
+            if (typeof item.hint === 'function') {
+              try { item.hint(cmShim, null, item); closeCompletion(v); return; } catch {}
+            }
+            const insert = String(item.text || item.displayText || '');
+            v.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
+          }
+        })),
+        // Enable filtering and interaction behavior similar to CM5
+        filter: true,
+        update(current){ return current; }
+      };
+    };
+  }
+
+  function buildKeymap(options){
+    const extra = [];
+    // Basic mappings used in the app
+    extra.push({ key: 'Mod-f', run: openSearchPanel });
+    // Fallback: map replace to open the search panel (CM6 no direct openReplacePanel export)
+    extra.push({ key: 'Mod-r', run: openSearchPanel });
+    extra.push({ key: 'Ctrl-Space', run: (v)=>{ startCompletion(v); return true; } });
+
+    // Map provided extraKeys if any
+    if (options && options.extraKeys){
+      const map = options.extraKeys;
+      const bind = (key, cmd)=>{ if (!map[key]) return; extra.push({ key, run: (v)=>{ if (cmd==='find') return openSearchPanel(v); if (cmd==='replace') return openSearchPanel(v); if (cmd==='undo') return history.undo(v) || true; if (cmd==='redo') return history.redo(v) || true; if (cmd==='autocomplete'){ startCompletion(v); return true; } return false; } }); };
+      bind('Ctrl-F','find'); bind('Cmd-F','find');
+      bind('Ctrl-R','replace'); bind('Cmd-R','replace');
+      bind('Ctrl-Z','undo'); bind('Cmd-Z','undo');
+      bind('Ctrl-Y','redo'); bind('Cmd-Y','redo');
+      bind('Ctrl-Space','autocomplete');
+    }
+    return extra;
+  }
+
+  // Highlight styles for light/dark
+  // Unified hues (same hue per token, lighter on dark, darker on light)
+  const hues = {
+    property: { light: '#b05e36', dark: '#f78c6c' },
+    string:   { light: '#b58900', dark: '#ffd866' },
+    number:   { light: '#1a5fb4', dark: '#9cdcfe' },
+    boolNull: { light: '#6f42c1', dark: '#c792ea' },
+    punct:    { light: '#333333', dark: '#cccccc' }
+  };
+  const lightHighlight = HighlightStyle.define([
+    { tag: tags.propertyName, color: hues.property.light },
+    { tag: [tags.string], color: hues.string.light },
+    { tag: [tags.number], color: hues.number.light },
+    { tag: [tags.bool, tags.null], color: hues.boolNull.light },
+    { tag: [tags.bracket, tags.punctuation, tags.operator], color: hues.punct.light }
+  ]);
+  const darkHighlight = HighlightStyle.define([
+    { tag: tags.propertyName, color: hues.property.dark },
+    { tag: [tags.string], color: hues.string.dark },
+    { tag: [tags.number], color: hues.number.dark },
+    { tag: [tags.bool, tags.null], color: hues.boolNull.dark },
+    { tag: [tags.bracket, tags.punctuation, tags.operator], color: hues.punct.dark }
+  ]);
+  const highlightCompartment = new Compartment();
+
+  function createAdapter(mountEl, options){
+    const changeHandlers = [];
+    const keydownHandlers = [];
+    const keyupHandlers = [];
+    const cursorHandlers = [];
+    const focusHandlers = [];
+
+    const baseExtensions = [
+      history(),
+      drawSelection(),
+      json(),
+      highlightCompartment.of(syntaxHighlighting(lightHighlight)),
+      foldGutter(),
+      autocompletion({
+        override: [ (ctx)=> adapter && registeredJsonHintHelper ? adapter._completionSource(ctx) : null ],
+        activateOnTyping: false
+      }),
+      keymap.of([ ...defaultKeymap, ...historyKeymap, ...searchKeymap, ...completionKeymap, ...buildKeymap(options) ]),
+      EditorView.updateListener.of((update)=>{
+        if (update.docChanged){ changeHandlers.forEach(fn=>{ try{ fn(); }catch{} }); }
+        if (update.selectionSet){ cursorHandlers.forEach(fn=>{ try{ fn(); }catch{} }); }
+        if (update.focusChanged && update.view.hasFocus){ focusHandlers.forEach(fn=>{ try{ fn(); }catch{} }); }
+      })
+    ];
+
+    const initialDoc = '';
+    const state = EditorState.create({ doc: initialDoc, extensions: baseExtensions });
+    const view = new EditorView({ state, parent: mountEl });
+
+    const adapter = {
+      view,
+      _completionSource: null,
+      on(event, handler){
+        if (event === 'change') changeHandlers.push(handler);
+        if (event === 'keydown') { keydownHandlers.push(handler); }
+        if (event === 'keyup') { keyupHandlers.push(handler); }
+        if (event === 'cursorActivity') { cursorHandlers.push(handler); }
+        if (event === 'focus') { focusHandlers.push(handler); }
+      },
+      getValue(){ return view.state.doc.toString(); },
+      setValue(text){ view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: String(text||'') } }); },
+      refresh(){ /* no-op in CM6 */ },
+      getCursor(){ const head = view.state.selection.main.head; const ln = view.state.doc.lineAt(head); return { line: ln.number - 1, ch: head - ln.from }; },
+      setCursor(pos){ const at = lineChToOffset(view, pos); view.dispatch({ selection: { anchor: at } }); view.focus(); },
+      focus(){ view.focus(); },
+      getLine(n){ return view.state.doc.line((n|0)+1).text; },
+      lineCount(){ return view.state.doc.lines; },
+      getScrollInfo(){ return { left: view.scrollDOM.scrollLeft, top: view.scrollDOM.scrollTop }; },
+      scrollTo(left=0, top=0){ try { view.scrollDOM.scrollTo(left, top); } catch { view.scrollDOM.scrollLeft=left; view.scrollDOM.scrollTop=top; } },
+      execCommand(name){
+        if (name==='autocomplete') return startCompletion(view);
+        if (name==='closeCompletion') return closeCompletion(view);
+        if (name==='find') return openSearchPanel(view);
+        if (name==='replace') return openSearchPanel(view);
+        if (name==='selectAll'){ view.dispatch({ selection: EditorSelection.range(0, view.state.doc.length) }); return true; }
+      },
+      undo(){ history.undo(view); },
+      redo(){ history.redo(view); },
+      replaceSelection(text){ const tr = view.state.replaceSelection(String(text||'')); view.dispatch(tr); },
+      replaceRange(text, from, to){ const f = lineChToOffset(view, from); const t = to ? lineChToOffset(view, to) : f; view.dispatch({ changes: { from: f, to: t, insert: String(text||'') } }); },
+      getSelection(){ const r = view.state.selection.main; return view.state.sliceDoc(r.from, r.to); },
+      setOption(/*key, value*/){ /* best-effort no-op to keep API */ },
+      getWrapperElement(){ return view.dom; },
+      setTheme(theme){
+        try {
+          const style = (String(theme||'light') === 'dark') ? darkHighlight : lightHighlight;
+          view.dispatch({ effects: highlightCompartment.reconfigure(syntaxHighlighting(style)) });
+        } catch {}
+      },
+      addKeyMap(map){
+        view.dom.addEventListener('keydown', (e)=>{
+          const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+          const mod = isMac ? e.metaKey : e.ctrlKey;
+          const key = e.key.toUpperCase();
+          const combo = (mod? 'Mod-' : (e.ctrlKey?'Ctrl-':'')) + key;
+          const tryRun = (name)=>{ if (typeof map[name] === 'function'){ e.preventDefault(); try{ map[name](adapter); }catch{} return true; } };
+          if ((e.ctrlKey && key==='S') && tryRun('Ctrl-S')) return;
+          if ((e.metaKey && key==='S') && tryRun('Cmd-S')) return;
+        });
+      },
+      addLineClass(line, /*where*/_w, className){
+        try {
+          const lines = view.dom.querySelectorAll('.cm-line');
+          const el = lines[(line|0)] ;
+          if (el) el.classList.add(className);
+        } catch {}
+      },
+      removeLineClass(line, /*where*/_w, className){
+        try {
+          const lines = view.dom.querySelectorAll('.cm-line');
+          const el = lines[(line|0)] ;
+          if (el) el.classList.remove(className);
+        } catch {}
+      },
+      scrollIntoView(pos, yMargin){
+        try {
+          const off = (typeof pos === 'number') ? pos : lineChToOffset(view, pos);
+          const rect = view.coordsAtPos(off);
+          if (rect){
+            const top = Math.max(0, rect.top + view.scrollDOM.scrollTop - (typeof yMargin==='number'? yMargin : 100));
+            view.scrollDOM.scrollTo({ top, behavior: 'smooth' });
+          } else {
+            view.scrollDOM.scrollTo({ top: 0 });
+          }
+        } catch {}
+      }
+    };
+
+      // Wire key events for legacy listeners
+    view.dom.addEventListener('keydown', (e)=>{ keydownHandlers.forEach(fn=>{ try{ fn(adapter, e); }catch{} }); }, true);
+    view.dom.addEventListener('keyup', (e)=>{ keyupHandlers.forEach(fn=>{ try{ fn(adapter, e); }catch{} }); }, true);
+
+    // Bind completion source bound to this adapter
+    adapter._completionSource = createCompletionSource(adapter);
+
+    return adapter;
+  }
+
+  // Expose minimal CM5-like global
+  window.CodeMirror = {
+    Pos: (line, ch)=>({ line, ch }),
+    fromTextArea: function(el, options){
+      let mount = el;
+      if (el && el.tagName && el.tagName.toLowerCase() === 'textarea'){
+        const container = document.createElement('div');
+        el.parentNode.insertBefore(container, el);
+        el.style.display = 'none';
+        mount = container;
+      }
+      const adapter = createAdapter(mount, options||{});
+      // Initialize with existing textarea value if provided
+      if (el && el.tagName && el.tagName.toLowerCase() === 'textarea'){
+        adapter.setValue(el.value || '');
+      }
+      // Apply current theme highlight once initialized
+      try {
+        const currentTheme = (localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+        if (typeof adapter.setTheme === 'function') adapter.setTheme(currentTheme);
+      } catch {}
+      return adapter;
+    },
+    registerHelper: function(type, name, func){
+      if (type === 'hint') registeredJsonHintHelper = func;
+    }
+  };
+})();
+
+// Register custom JSON hint provider using the new hints module
+try { CodeMirror.registerHelper('hint', 'json', (cm) => customJsonHintImpl(cm)); } catch (_) {}
+
 window.addEventListener('DOMContentLoaded', function () {
     // --- Инициализация CodeMirror ---
     window.editor = CodeMirror.fromTextArea(document.getElementById('jsonEditor'), {
@@ -118,6 +472,18 @@ window.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // Если курсор в конце строки и только что ввели запятую/закрывающую кавычку/скобку — закрываем подсказки и не открываем заново
+        const cur = cm.getCursor();
+        const line = cm.getLine(cur.line);
+        const beforeCursor = line.slice(0, cur.ch);
+        const afterCursor = line.slice(cur.ch);
+        const atEOL = /^\s*$/.test(afterCursor);
+        if (atEOL && (/(,|\}|\]|")\s*$/.test(beforeCursor) || event.key === ',' || event.key === '}' || event.key === ']' || event.key === '"')) {
+            cm.execCommand('closeCompletion');
+            window.autocompleteJustClosed = true;
+            return;
+        }
+
         // Проверяем, что автокомплит не был только что закрыт
         if (window.autocompleteJustClosed) {
             window.autocompleteJustClosed = false;
@@ -134,7 +500,7 @@ window.addEventListener('DOMContentLoaded', function () {
         // 1. Курсор в конце строки после запятой
         // 2. Курсор в конце строки после открывающей скобки
         // 3. Курсор в конце строки после двоеточия
-        if (!/^\s*[,{\[\s]*$/.test(beforeCursor)) {
+        if (!/(,\s*)$/.test(beforeCursor) && !/^\s*[,{\[\s]*$/.test(beforeCursor)) {
             setTimeout(() => {
                 cm.execCommand('autocomplete');
             }, 100);
@@ -147,7 +513,7 @@ window.addEventListener('DOMContentLoaded', function () {
             const line = cm.getLine(cur.line);
             const beforeCursor = line.slice(0, cur.ch);
 
-            if (!/^\s*[,{\[\s]*$/.test(beforeCursor)) {
+            if (!/(,\s*)$/.test(beforeCursor) && !/^\s*[,{\[\s]*$/.test(beforeCursor)) {
                 setTimeout(() => {
                     cm.execCommand('autocomplete');
                 }, 100);
@@ -205,6 +571,14 @@ window.addEventListener('DOMContentLoaded', function () {
                         fieldObj.properties = walk(prop, path.concat(key));
                     }
 
+                    // Разрешаем прямые ссылки $ref на определения (не только внутри items)
+                    if (!fieldObj.properties && prop.$ref) {
+                        const refName = prop.$ref.replace('#/$defs/', '');
+                        if (schema.$defs && schema.$defs[refName]) {
+                            fieldObj.properties = walk(schema.$defs[refName], path.concat(key));
+                        }
+                    }
+
                     // Если это массив с items, то добавляем свойства items
                     if (prop.type === 'array' && prop.items) {
                         if (prop.items.properties) {
@@ -226,6 +600,17 @@ window.addEventListener('DOMContentLoaded', function () {
                         }
                     }
 
+                    // Проект-специфичная нормализация: services/characteristics/link
+                    if (!fieldObj.properties && key === 'services' && schema.properties && schema.properties.services && schema.properties.services.items) {
+                        fieldObj.properties = walk(schema.properties.services.items, path.concat(key));
+                    }
+                    if (!fieldObj.properties && key === 'characteristics' && schema.$defs && schema.$defs.characteristic) {
+                        fieldObj.properties = walk(schema.$defs.characteristic, path.concat(key));
+                    }
+                    if (!fieldObj.properties && key === 'link' && schema.$defs && schema.$defs.link) {
+                        fieldObj.properties = walk(schema.$defs.link, path.concat(key));
+                    }
+
                     result[key] = fieldObj;
                 }
             }
@@ -238,14 +623,12 @@ window.addEventListener('DOMContentLoaded', function () {
             result = walk(schema);
         }
 
-        // Явное описание общих структур массива сервисов и характеристик
-        // services -> массив объектов сервисов
+        // Явное описание структур: оборачиваем в поле с properties, чтобы форма была единообразной
         if (schema && schema.properties && schema.properties.services && schema.properties.services.items) {
-            result.services = walk(schema.properties.services.items);
+            result.services = { type: 'array', properties: walk(schema.properties.services.items) };
         }
-        // characteristics -> массив объектов характеристик внутри сервиса
         if (schema && schema.$defs && schema.$defs.characteristic) {
-            result.characteristics = walk(schema.$defs.characteristic);
+            result.characteristics = { type: 'array', properties: walk(schema.$defs.characteristic) };
         }
 
         return result;
@@ -886,816 +1269,6 @@ window.addEventListener('DOMContentLoaded', function () {
         }
     };
 
-
-
-    // Новая улучшенная функция для получения подсказок
-    window.getHintsForPathImproved = function (path, tree) {
-        let node = tree;
-        if (path.length === 0) return node;
-
-        for (let i = 0; i < path.length; i++) {
-            const p = path[i];
-
-            // Если это индекс массива, пропускаем (но сохраняем контекст)
-            if (typeof p === 'number') {
-                continue;
-            }
-
-            // Специальная обработка для link
-            if (p === 'link') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.link && window.schema.$defs.link.properties) {
-                    node = window.schema.$defs.link.properties;
-                    continue; // Продолжаем навигацию
-                }
-            }
-
-            // Специальная обработка для services
-            if (p === 'services') {
-                // Используем items описания services
-                if (window.schema && window.schema.properties && window.schema.properties.services && window.schema.properties.services.items) {
-                    node = window.buildSchemaHintsTree(window.schema.properties.services.items);
-                    continue;
-                }
-            }
-
-            // Специальная обработка для characteristics
-            if (p === 'characteristics') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.characteristic) {
-                    node = window.buildSchemaHintsTree(window.schema.$defs.characteristic);
-                    continue;
-                }
-            }
-
-            // Специальная обработка для options
-            if (p === 'options') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.characteristic && window.schema.$defs.characteristic.properties) {
-                    node = window.schema.$defs.characteristic.properties;
-                    continue; // Продолжаем навигацию
-                }
-            }
-
-            // Специальная обработка для init
-            if (p === 'init') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.init && window.schema.$defs.init.properties) {
-                    node = window.schema.$defs.init.properties;
-                    continue; // Продолжаем навигацию
-                }
-            }
-
-            // Специальная обработка для data
-            if (p === 'data') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.data && window.schema.$defs.data.properties) {
-                    node = window.schema.$defs.data.properties;
-                    continue; // Продолжаем навигацию
-                }
-            }
-
-            // Специальная обработка для logics
-            if (p === 'logics') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.logics && window.schema.$defs.logics.properties) {
-                    node = window.schema.$defs.logics.properties;
-                    continue; // Продолжаем навигацию
-                }
-            }
-
-            // Специальная обработка для optional
-            if (p === 'optional') {
-                if (window.schema && window.schema.$defs && window.schema.$defs.optional && window.schema.$defs.optional.properties) {
-                    node = window.schema.$defs.optional.properties;
-                    continue; // Продолжаем навигацию
-                }
-            }
-
-            // Специальная обработка для values
-            if (p === 'values') {
-                // values - это массив объектов с полями value, name, description
-                const valuesSchema = {
-                    value: { type: 'string', description: 'Value' },
-                    name: { type: 'string', description: 'Name' },
-                    description: { type: 'string', description: 'Description' }
-                };
-                node = valuesSchema;
-                continue; // Продолжаем навигацию
-            }
-
-            // Специальная обработка для set/get (в link)
-            if (p === 'set' || p === 'get') {
-                const setGetSchema = {
-                    method: { type: 'string', description: 'Method' },
-                    param: { type: 'string', description: 'Parameter' }
-                };
-                node = setGetSchema;
-                continue; // Продолжаем навигацию
-            }
-
-            // Специальная обработка для values (в characteristic)
-            if (p === 'values') {
-                // values - это массив объектов с полями value, name, description
-                const valuesSchema = {
-                    value: { type: 'string', description: 'Value' },
-                    name: { type: 'string', description: 'Name' },
-                    description: { type: 'string', description: 'Description' }
-                };
-                node = valuesSchema;
-                continue; // Продолжаем навигацию
-            }
-
-            // Специальная обработка для map/outMap (в link)
-            if (p === 'map' || p === 'outMap') {
-                // map/outMap - это объекты с patternProperties
-                // Внутри map/outMap можно добавлять любые строковые ключи
-                const mapSchema = {
-                    // patternProperties - любое поле может быть boolean, number, integer, string, object
-                    "*": { type: 'string', description: 'Mapping value' }
-                };
-                node = mapSchema;
-                continue; // Продолжаем навигацию
-            }
-
-            // Проверяем, есть ли определение в $defs
-            if (window.schema && window.schema.$defs && window.schema.$defs[p] && window.schema.$defs[p].properties) {
-                node = window.schema.$defs[p].properties;
-                continue; // Продолжаем навигацию
-            }
-
-            // Обычная навигация по дереву
-            if (node && node[p]) {
-                if (node[p].properties) {
-                    node = node[p].properties;
-                } else if (node[p].type) {
-                    // Если это поле с типом, но без properties, это конечный узел
-                    // Не прерываем навигацию, продолжаем искать в родительском контексте
-                    continue;
-                } else {
-                    node = node[p];
-                }
-            } else {
-                // Если не найдено в дереве подсказок, попробуем найти в оригинальной схеме
-                if (window.schema && window.schema.properties && window.schema.properties[p] && window.schema.properties[p].properties) {
-                    node = window.schema.properties[p].properties;
-                } else if (window.schema && window.schema.$defs) {
-                    // Ищем в $defs
-                    for (const defName in window.schema.$defs) {
-                        const def = window.schema.$defs[defName];
-                        if (def.properties && def.properties[p] && def.properties[p].properties) {
-                            node = def.properties[p].properties;
-                            break;
-                        }
-                    }
-                }
-                break;
-            }
-        }
-
-        // Если мы не нашли правильный узел или нашли узел с типом, 
-        // попробуем найти подходящий контекст в родительских узлах
-        if (!node || typeof node === 'string' || (node.type && !node.properties)) {
-            // Попробуем найти последний подходящий узел в пути
-            let lastValidNode = tree;
-            for (let i = 0; i < path.length; i++) {
-                const p = path[i];
-                if (typeof p === 'number') continue;
-
-                // Проверяем специальные типы объектов
-                if (p === 'services' && window.schema && window.schema.$defs && window.schema.$defs.service && window.schema.$defs.service.properties) {
-                    lastValidNode = window.schema.$defs.service.properties;
-                } else if (p === 'characteristics' && window.schema && window.schema.$defs && window.schema.$defs.characteristic && window.schema.$defs.characteristic.properties) {
-                    lastValidNode = window.schema.$defs.characteristic.properties;
-                } else if (p === 'options' && window.schema && window.schema.$defs && window.schema.$defs.characteristic && window.schema.$defs.characteristic.properties) {
-                    lastValidNode = window.schema.$defs.characteristic.properties;
-                } else if (p === 'link' && window.schema && window.schema.$defs && window.schema.$defs.link && window.schema.$defs.link.properties) {
-                    lastValidNode = window.schema.$defs.link.properties;
-                } else if (p === 'init' && window.schema && window.schema.$defs && window.schema.$defs.init && window.schema.$defs.init.properties) {
-                    lastValidNode = window.schema.$defs.init.properties;
-                } else if (p === 'data' && window.schema && window.schema.$defs && window.schema.$defs.data && window.schema.$defs.data.properties) {
-                    lastValidNode = window.schema.$defs.data.properties;
-                } else if (p === 'logics' && window.schema && window.schema.$defs && window.schema.$defs.logics && window.schema.$defs.logics.properties) {
-                    lastValidNode = window.schema.$defs.logics.properties;
-                } else if (p === 'optional' && window.schema && window.schema.$defs && window.schema.$defs.optional && window.schema.$defs.optional.properties) {
-                    lastValidNode = window.schema.$defs.optional.properties;
-                } else if (p === 'map' || p === 'outMap') {
-                    // Для map/outMap создаем специальную схему с patternProperties
-                    lastValidNode = {
-                        "*": { type: 'string', description: 'Mapping value' }
-                    };
-                } else if (lastValidNode && lastValidNode[p] && lastValidNode[p].properties) {
-                    lastValidNode = lastValidNode[p].properties;
-                }
-            }
-
-            node = lastValidNode;
-        }
-
-        return node;
-    };
-
-    window.customJsonHint = function (cm) {
-
-        if (!window.schemaHintsTree) {
-            console.error('Ошибка автокомплита: schemaHintsTree не загружен');
-            return;
-        }
-
-        // Добавляем стандартные JSON подсказки
-        const standardJsonHints = [
-            { text: 'true', displayText: 'true (boolean)', hint: function (cm, data, completion) { cm.replaceRange('true', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd }); } },
-            { text: 'false', displayText: 'false (boolean)', hint: function (cm, data, completion) { cm.replaceRange('false', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd }); } },
-            { text: 'null', displayText: 'null', hint: function (cm, data, completion) { cm.replaceRange('null', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd }); } }
-        ];
-
-        const cur = cm.getCursor();
-        const token = cm.getTokenAt(cur);
-        const path = window.getCurrentJsonPath(cm);
-        let currentWord = '';
-        let keyStart = cur.ch, keyEnd = cur.ch;
-        const line = cm.getLine(cur.line);
-
-
-
-        if (token && token.string && token.type === 'string') {
-            // Убираем кавычки для получения чистого текста
-            currentWord = token.string.replace(/^"|"$/g, '');
-            keyStart = token.start;
-            keyEnd = token.end;
-        } else {
-            const before = line.slice(0, cur.ch);
-            // Ищем слово перед курсором (включая символы в кавычках)
-            const match = before.match(/(["']?[\w$]+["']?)$/);
-            if (match) {
-                currentWord = match[1].replace(/^["']|["']$/g, '');
-                keyStart = cur.ch - match[1].length;
-            } else {
-                currentWord = '';
-                keyStart = cur.ch;
-            }
-            const after = line.slice(cur.ch);
-            const matchAfter = after.match(/^([\w$]*)/);
-            if (matchAfter) {
-                keyEnd = cur.ch + matchAfter[1].length;
-            } else {
-                keyEnd = cur.ch;
-            }
-        }
-
-        let key = null;
-        if (path.length > 0) {
-            key = path[path.length - 1];
-        }
-
-        let node = null;
-        node = window.getHintsForPathImproved(path, window.schemaHintsTree);
-
-        function isInValuePosition() {
-            const before = line.slice(0, cur.ch);
-
-            // Проверяем, находимся ли мы в ключе (между кавычками)
-            if (token && token.type === 'string') {
-                // Если мы внутри кавычек, но после двоеточия - это значение
-                if (/\:\s*"/.test(before)) {
-                    return true;
-                }
-                // Если мы внутри кавычек, но НЕ после двоеточия - это ключ
-                return false;
-            }
-
-            // Проверяем различные случаи позиции значения
-            if (token && token.state && token.state.lastType === 'colon') return true;
-            if (/\:\s*$/.test(before)) return true;
-            if (/\:\s+\S/.test(before) && !/\:\s*"/.test(before)) return true;
-
-            // Дополнительные проверки для лучшего определения позиции значения
-            if (/\:\s*[^"'\s]/.test(before)) return true;
-
-            return false;
-        }
-
-        function isInsideObject() {
-            const before = line.slice(0, cur.ch);
-            const after = line.slice(cur.ch);
-
-            // Проверяем, находимся ли мы внутри объекта (между { и })
-            const beforeBrackets = before.match(/\{/g) || [];
-            const beforeClosingBrackets = before.match(/\}/g) || [];
-            const afterBrackets = after.match(/\{/g) || [];
-            const afterClosingBrackets = after.match(/\}/g) || [];
-
-            const openBrackets = beforeBrackets.length + afterBrackets.length;
-            const closeBrackets = beforeClosingBrackets.length + afterClosingBrackets.length;
-
-            // Если открывающих скобок больше закрывающих, мы внутри объекта
-            return openBrackets > closeBrackets;
-        }
-
-        // Проверяем, что мы получили подсказки
-        if (!node) {
-            console.error('Ошибка автокомплита: не найдены подсказки для пути:', path);
-            return {
-                list: [],
-                from: CodeMirror.Pos(cur.line, keyStart),
-                to: CodeMirror.Pos(cur.line, keyEnd),
-                completeSingle: false
-            };
-        }
-        function createValueSuggestions(values, wrapInQuotes = true) {
-            return values.map(v => {
-                return {
-                    text: wrapInQuotes ? `"${v}"` : v,
-                    displayText: v,
-                    hint: function (cm, data, completion) {
-                        cm.replaceRange(wrapInQuotes ? `"${v}"` : v, { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                    }
-                };
-            });
-        }
-        if (isInValuePosition() && key && node && node[key]) {
-            const field = node[key];
-
-            // Проверяем enum в поле
-            if (field.enum && field.enum.length > 0) {
-                let enumList = createValueSuggestions(field.enum, true);
-                if (currentWord && currentWord.length > 0) {
-                    enumList = enumList.filter(item => item.displayText.toLowerCase().includes(currentWord.toLowerCase()));
-                }
-                return {
-                    list: enumList,
-                    from: CodeMirror.Pos(cur.line, keyStart),
-                    to: CodeMirror.Pos(cur.line, keyEnd),
-                    completeSingle: false
-                };
-            }
-
-            // Если enum не найден в поле, попробуем найти в оригинальной схеме
-            if (!field.enum && window.schema) {
-                let originalField = null;
-
-                // Ищем поле в основной схеме
-                if (window.schema.properties && window.schema.properties[key]) {
-                    originalField = window.schema.properties[key];
-                }
-
-                // Ищем в $defs
-                if (!originalField && window.schema.$defs) {
-                    for (const defName in window.schema.$defs) {
-                        const def = window.schema.$defs[defName];
-                        if (def.properties && def.properties[key]) {
-                            originalField = def.properties[key];
-                            break;
-                        }
-                    }
-                }
-
-                // Ищем в вложенных объектах по пути
-                if (!originalField && path.length > 0) {
-                    let currentSchema = window.schema;
-                    for (let i = 0; i < path.length - 1; i++) {
-                        const pathItem = path[i];
-                        if (typeof pathItem === 'number') continue;
-
-                        if (currentSchema.properties && currentSchema.properties[pathItem]) {
-                            currentSchema = currentSchema.properties[pathItem];
-                        } else if (currentSchema.$defs) {
-                            for (const defName in currentSchema.$defs) {
-                                const def = currentSchema.$defs[defName];
-                                if (def.properties && def.properties[pathItem]) {
-                                    currentSchema = def.properties[pathItem];
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if (currentSchema && currentSchema.properties && currentSchema.properties[key]) {
-                        originalField = currentSchema.properties[key];
-                    }
-                }
-
-                if (originalField && originalField.enum && originalField.enum.length > 0) {
-                    let enumList = createValueSuggestions(originalField.enum, true);
-                    if (currentWord && currentWord.length > 0) {
-                        enumList = enumList.filter(item => item.displayText.toLowerCase().includes(currentWord.toLowerCase()));
-                    }
-                    return {
-                        list: enumList,
-                        from: CodeMirror.Pos(cur.line, keyStart),
-                        to: CodeMirror.Pos(cur.line, keyEnd),
-                        completeSingle: false
-                    };
-                }
-            }
-            if (field.type === 'boolean') {
-                let booleanList = createValueSuggestions(['true', 'false'], false);
-                if (currentWord && currentWord.length > 0) {
-                    booleanList = booleanList.filter(item => item.displayText.toLowerCase().includes(currentWord.toLowerCase()));
-                }
-                return {
-                    list: booleanList,
-                    from: CodeMirror.Pos(cur.line, keyStart),
-                    to: CodeMirror.Pos(cur.line, keyEnd),
-                    completeSingle: false
-                };
-            }
-            if (field.type === 'string' && !field.enum) {
-                let stringList = createValueSuggestions([''], true);
-                if (currentWord && currentWord.length > 0) {
-                    stringList = stringList.filter(item => item.displayText.toLowerCase().includes(currentWord.toLowerCase()));
-                }
-                return {
-                    list: stringList,
-                    from: CodeMirror.Pos(cur.line, keyStart),
-                    to: CodeMirror.Pos(cur.line, keyEnd),
-                    completeSingle: false
-                };
-            }
-            if (field.type === 'object') {
-                // Создаем подсказки для объектов
-                let objectSuggestions = [];
-
-                // Базовая подсказка для пустого объекта
-                objectSuggestions.push({
-                    text: '{}',
-                    displayText: '{} (пустой объект)',
-                    hint: function (cm, data, completion) {
-                        cm.replaceRange('{}', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                    }
-                });
-
-                // Подсказка для объекта с правильным форматированием
-                objectSuggestions.push({
-                    text: '{\n  \n}',
-                    displayText: '{...} (объект с полями)',
-                    hint: function (cm, data, completion) {
-                        const currentLine = cur.line;
-                        const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                        const newIndent = indent + '  ';
-
-                        // Заменяем текущую строку
-                        cm.replaceRange('{\n' + newIndent + '\n' + indent + '}',
-                            { line: currentLine, ch: keyStart },
-                            { line: currentLine, ch: keyEnd });
-
-                        // Устанавливаем курсор внутри объекта для ввода первого поля
-                        setTimeout(() => {
-                            cm.setCursor({ line: currentLine + 1, ch: newIndent.length });
-                        }, 10);
-                    }
-                });
-
-                // Если у поля есть properties, предлагаем подсказку с полями
-                if (field.properties) {
-                    const fieldNames = Object.keys(field.properties);
-                    if (fieldNames.length > 0) {
-                        objectSuggestions.push({
-                            text: `{\n}`,
-                            displayText: `{fields} (объект)`,
-                            hint: function (cm, data, completion) {
-                                const currentLine = cur.line;
-                                const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                                const newIndent = indent + '  ';
-
-                                const objectContent = fieldNames.slice(0, 3).map(field =>
-                                    `${newIndent}"${field}": ""`
-                                ).join(',\n');
-
-                                const fullContent = `{\n${objectContent}\n${indent}}`;
-
-                                cm.replaceRange(fullContent,
-                                    { line: currentLine, ch: keyStart },
-                                    { line: currentLine, ch: keyEnd });
-
-                                // Устанавливаем курсор на первое поле
-                                setTimeout(() => {
-                                    cm.setCursor({ line: currentLine + 1, ch: newIndent.length + 1 });
-                                }, 10);
-                            }
-                        });
-                    }
-                }
-
-                // Фильтруем по текущему слову
-                if (currentWord && currentWord.length > 0) {
-                    objectSuggestions = objectSuggestions.filter(item =>
-                        item.displayText.toLowerCase().includes(currentWord.toLowerCase())
-                    );
-                }
-
-                return {
-                    list: objectSuggestions,
-                    from: CodeMirror.Pos(cur.line, keyStart),
-                    to: CodeMirror.Pos(cur.line, keyEnd),
-                    completeSingle: false
-                };
-            }
-            if (field.type === 'array' || (Array.isArray(field.type) && field.type.includes('array'))) {
-                // Создаем подсказки для массивов
-                let arraySuggestions = [];
-
-                // Базовая подсказка для пустого массива
-                arraySuggestions.push({
-                    text: '[]',
-                    displayText: '[] (пустой массив)',
-                    hint: function (cm, data, completion) {
-                        cm.replaceRange('[]', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                    }
-                });
-
-                // Подсказка для массива с одним пустым объектом (с правильным форматированием)
-                arraySuggestions.push({
-                    text: '[\n  {}\n]',
-                    displayText: '[{}] (массив с объектом)',
-                    hint: function (cm, data, completion) {
-                        const currentLine = cur.line;
-                        const currentCh = cur.ch;
-                        const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                        const newIndent = indent + '  ';
-
-                        // Заменяем текущую строку
-                        cm.replaceRange('[\n' + newIndent + '{}\n' + indent + ']',
-                            { line: currentLine, ch: keyStart },
-                            { line: currentLine, ch: keyEnd });
-
-                        // Устанавливаем курсор внутри объекта
-                        setTimeout(() => {
-                            cm.setCursor({ line: currentLine + 1, ch: newIndent.length + 1 });
-                        }, 10);
-                    }
-                });
-
-                // Если у поля есть items с $ref, предлагаем более специфичную подсказку
-                if (field.items && field.items.$ref) {
-                    const refPath = field.items.$ref.replace('#/$defs/', '');
-                    if (window.schema && window.schema.$defs && window.schema.$defs[refPath]) {
-                        const refDef = window.schema.$defs[refPath];
-                        if (refDef && refDef.properties) {
-                            // Создаем подсказку с полями из $ref
-                            const refFields = Object.keys(refDef.properties);
-                            if (refFields.length > 0) {
-                                arraySuggestions.push({
-                                    text: `[\n  {\n}\n]`,
-                                    displayText: `[{...}] (массив с ${refPath})`,
-                                    hint: function (cm, data, completion) {
-                                        const currentLine = cur.line;
-                                        const currentCh = cur.ch;
-                                        const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                                        const newIndent = indent + '  ';
-                                        const fieldIndent = newIndent + '  ';
-
-                                        const objectContent = refFields.slice(0, 3).map(field =>
-                                            `${fieldIndent}"${field}": ""`
-                                        ).join(',\n');
-
-                                        const fullContent = `[\n${newIndent}{\n${objectContent}\n${newIndent}}\n${indent}]`;
-
-                                        cm.replaceRange(fullContent,
-                                            { line: currentLine, ch: keyStart },
-                                            { line: currentLine, ch: keyEnd });
-
-                                        // Устанавливаем курсор на первое поле
-                                        setTimeout(() => {
-                                            cm.setCursor({ line: currentLine + 2, ch: fieldIndent.length + 1 });
-                                        }, 10);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Фильтруем по текущему слову
-                if (currentWord && currentWord.length > 0) {
-                    arraySuggestions = arraySuggestions.filter(item =>
-                        item.displayText.toLowerCase().includes(currentWord.toLowerCase())
-                    );
-                }
-
-                return {
-                    list: arraySuggestions,
-                    from: CodeMirror.Pos(cur.line, keyStart),
-                    to: CodeMirror.Pos(cur.line, keyEnd),
-                    completeSingle: false
-                };
-            }
-            return {
-                list: [],
-                from: CodeMirror.Pos(cur.line, keyStart),
-                to: CodeMirror.Pos(cur.line, keyEnd),
-                completeSingle: false
-            };
-        }
-        const list = [];
-        if (node) {
-            // Проверяем, находимся ли мы внутри объекта
-            const insideObject = isInsideObject();
-
-            for (const key in node) {
-                if (Object.prototype.hasOwnProperty.call(node, key)) {
-                    if (currentWord && currentWord.length > 0 && !key.toLowerCase().includes(currentWord.toLowerCase())) continue;
-                    const item = node[key];
-
-                    // Если мы внутри объекта, показываем только поля этого объекта
-                    // Если мы не внутри объекта, показываем все поля текущего уровня
-                    if (insideObject && !item.properties) {
-                        // Внутри объекта, но у поля нет properties - пропускаем
-                        continue;
-                    }
-
-                    // Если мы не внутри объекта и это поле с типом array/object, 
-                    // добавляем специальные подсказки для значений только для текущего поля
-                    if (!insideObject && item && (item.type === 'array' || item.type === 'object')) {
-                        // Проверяем, соответствует ли текущее слово названию поля
-                        const isCurrentField = currentWord && currentWord.toLowerCase() === key.toLowerCase();
-
-                        if (isCurrentField) {
-                            // Добавляем подсказку для значения массива/объекта только для текущего поля
-                            const valueSuggestions = [];
-
-                            if (item.type === 'array') {
-                                valueSuggestions.push({
-                                    text: '[]',
-                                    displayText: '[] (пустой массив)',
-                                    render: function (el, self, data) {
-                                        el.innerHTML = `<span style='font-weight:bold'>[]</span> <span style='color:#888'>пустой массив</span>`;
-                                    },
-                                    hint: function (cm, data, completion) {
-                                        cm.replaceRange('[]', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                                    }
-                                });
-
-                                valueSuggestions.push({
-                                    text: '[{}]',
-                                    displayText: '[{}] (массив с объектом)',
-                                    render: function (el, self, data) {
-                                        el.innerHTML = `<span style='font-weight:bold'>[{}]</span> <span style='color:#888'>массив с объектом</span>`;
-                                    },
-                                    hint: function (cm, data, completion) {
-                                        const currentLine = cur.line;
-                                        const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                                        const newIndent = indent + '  ';
-                                        cm.replaceRange('[\n' + newIndent + '{}\n' + indent + ']', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                                        setTimeout(() => {
-                                            cm.setCursor({ line: currentLine + 1, ch: newIndent.length + 1 });
-                                        }, 10);
-                                    }
-                                });
-                            } else if (item.type === 'object') {
-                                valueSuggestions.push({
-                                    text: '{}',
-                                    displayText: '{} (пустой объект)',
-                                    render: function (el, self, data) {
-                                        el.innerHTML = `<span style='font-weight:bold'>{}</span> <span style='color:#888'>пустой объект</span>`;
-                                    },
-                                    hint: function (cm, data, completion) {
-                                        cm.replaceRange('{}', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                                    }
-                                });
-
-                                valueSuggestions.push({
-                                    text: '{...}',
-                                    displayText: '{...} (объект с полями)',
-                                    render: function (el, self, data) {
-                                        el.innerHTML = `<span style='font-weight:bold'>{...}</span> <span style='color:#888'>объект с полями</span>`;
-                                    },
-                                    hint: function (cm, data, completion) {
-                                        const currentLine = cur.line;
-                                        const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                                        const newIndent = indent + '  ';
-                                        cm.replaceRange('{\n' + newIndent + '\n' + indent + '}', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                                        setTimeout(() => {
-                                            cm.setCursor({ line: currentLine + 1, ch: newIndent.length });
-                                        }, 10);
-                                    }
-                                });
-                            }
-
-                            // Добавляем подсказки значений в список
-                            list.push(...valueSuggestions);
-                        }
-                    }
-
-                    // Специальная обработка для полей с patternProperties (map, outMap)
-                    if (key === '*' && item && item.type === 'string') {
-                        // Это поле с patternProperties - предлагаем любые строковые ключи
-                        const patternSuggestions = [
-                            {
-                                text: '"key"',
-                                displayText: '"key" (любой ключ)',
-                                render: function (el, self, data) {
-                                    el.innerHTML = `<span style='font-weight:bold'>"key"</span> <span style='color:#888'>любой строковый ключ</span>`;
-                                },
-                                hint: function (cm, data, completion) {
-                                    cm.replaceRange('"": ', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                                    // Устанавливаем курсор между кавычками
-                                    setTimeout(() => {
-                                        cm.setCursor({ line: cur.line, ch: cur.ch - 3 });
-                                    }, 10);
-                                }
-                            }
-                        ];
-
-                        // Добавляем подсказки patternProperties в список
-                        list.push(...patternSuggestions);
-                    }
-
-                    let displayText = key;
-                    if (item && item.type) displayText += ` (${item.type})`;
-                    list.push({
-                        text: key,
-                        displayText: displayText,
-                        render: function (el, self, data) {
-                            el.innerHTML = `<span style='font-weight:bold'>${key}</span> <span style='color:#888'>${item && item.type ? item.type : ''}</span> <span style='color:#0a0'>${item && item.enum ? '[' + item.enum.join(', ') + ']' : ''}</span><br><span style='font-size:smaller;color:#888'>${item && item.description ? item.description : ''}</span>`;
-                        },
-                        hint: function (cm, data, completion) {
-                            // Если это поле с типом array, предлагаем значение массива
-                            if (item && item.type === 'array') {
-                                const currentLine = cur.line;
-                                const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                                const newIndent = indent + '  ';
-
-                                // Проверяем, есть ли $ref для items
-                                let arrayValue = '[]';
-                                if (item.items && item.items.$ref) {
-                                    const refPath = item.items.$ref.replace('#/$defs/', '');
-                                    if (window.schema && window.schema.$defs && window.schema.$defs[refPath]) {
-                                        const refDef = window.schema.$defs[refPath];
-                                        if (refDef && refDef.properties) {
-                                            const refFields = Object.keys(refDef.properties);
-                                            if (refFields.length > 0) {
-                                                const objectContent = refFields.slice(0, 3).map(field =>
-                                                    `${newIndent}"${field}": ""`
-                                                ).join(',\n');
-
-                                                arrayValue = `[\n${newIndent}{\n${objectContent}\n${newIndent}}\n${indent}]`;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Простой массив с пустым объектом и запятой
-                                    arrayValue = `[\n${newIndent}{}\n${indent}],`;
-                                }
-
-                                cm.replaceRange('"' + key + '": ' + arrayValue, { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-
-                                // Устанавливаем курсор внутри первого объекта массива
-                                setTimeout(() => {
-                                    if (arrayValue.includes('{\n')) {
-                                        cm.setCursor({ line: currentLine + 1, ch: newIndent.length + 1 });
-                                    }
-                                }, 10);
-                            } else if (item && item.type === 'object') {
-                                // Если это поле с типом object, предлагаем пустой объект
-                                const currentLine = cur.line;
-                                const indent = cm.getLine(currentLine).match(/^\s*/)[0];
-                                const newIndent = indent + '  ';
-
-                                let objectValue = '{}';
-                                
-                                // Для поля link добавляем пустой объект без полей
-                                if (key === 'link') {
-                                    objectValue = '{}';
-                                } else if (item.properties) {
-                                    const fieldNames = Object.keys(item.properties);
-                                    if (fieldNames.length > 0) {
-                                        const objectContent = fieldNames.slice(0, 3).map(field =>
-                                            `${newIndent}"${field}": ""`
-                                        ).join(',\n');
-
-                                        objectValue = `{\n${objectContent}\n${indent}}`;
-                                    }
-                                } else {
-                                    objectValue = `{\n${newIndent}\n${indent}}`;
-                                }
-
-                                cm.replaceRange('"' + key + '": ' + objectValue, { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-
-                                // Устанавливаем курсор внутри объекта
-                                setTimeout(() => {
-                                    cm.setCursor({ line: currentLine + 1, ch: newIndent.length });
-                                }, 10);
-                            } else {
-                                // Обычное поле
-                                cm.replaceRange('"' + key + '": ', { line: cur.line, ch: keyStart }, { line: cur.line, ch: keyEnd });
-                            }
-                        }
-                    });
-                }
-            }
-        }
-
-        // Объединяем кастомные подсказки со стандартными JSON подсказками
-        const combinedList = [...list, ...standardJsonHints];
-
-        // Для CodeMirror 5 нужно возвращать объект с правильной структурой
-        return {
-            list: combinedList,
-            from: CodeMirror.Pos(cur.line, keyStart),
-            to: CodeMirror.Pos(cur.line, keyEnd),
-            completeSingle: false
-        };
-    };
-
-    // Регистрируем нашу кастомную функцию автокомплита для JSON
-    CodeMirror.registerHelper('hint', 'application/json', window.customJsonHint);
-    CodeMirror.registerHelper('hint', 'json', window.customJsonHint);
-
     // --- Восстановление и применение темы ---
     window.initTheme();
 
@@ -2064,10 +1637,12 @@ window.addEventListener('DOMContentLoaded', function () {
             };
             const others = globalAll.filter(c => !usedTypes.has(c.type) && c.type !== 'Name').sort(sortByName);
             const reqHtml = req.map(c=>{
-                const exists = externalMode === 'addCharacteristics' && existingCharTypes && existingCharTypes.has(c.type);
+                const existsInCurrentSvc = (svc.characteristics||[]).some(x=>x.type===c.type);
+                // В полном мастере (не externalMode) обязательные характеристики не помечаем как «уже добавлена» и не дизейблим
+                const exists = (externalMode === 'addCharacteristics') && (existsInCurrentSvc || (existingCharTypes && existingCharTypes.has(c.type)));
                 const disabledAttr = exists ? 'disabled' : '';
                 const already = exists ? ` <span style='font-size:11px;color:#c00;'>(уже добавлена)</span>` : '';
-                const ch = selected.has(c.type) && !exists ? 'checked' : '';
+                const ch = (!exists) ? 'checked' : '';
                 return `<div class='char-block'><label><input type='checkbox' data-type='${c.type}' ${disabledAttr} ${ch}/> ${c.name||c.type} <span style='opacity:.6'>(${c.type})</span>${already}</label></div>`;
             }).join('');
             const optHtml = opt.map(c=>{

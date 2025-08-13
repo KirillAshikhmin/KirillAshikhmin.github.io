@@ -284,12 +284,175 @@ body.light .theme-toggle-btn .dark-icon {
     background-color: var(--cm-background);
 }
 
-.CodeMirror {
+/* Ensure CM6 editor fills the container without inner borders */
+.editor-container .cm-editor {
+    border: none;
+}
+
+.CodeMirror,
+.cm-editor {
     height: 70vh !important;
     width: 100% !important;
     box-sizing: border-box;
     font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
     font-size: 14px;
+}
+
+/* CodeMirror 6 base theming */
+.cm-editor {
+    background: var(--cm-background);
+    color: var(--cm-foreground);
+}
+.cm-editor .cm-scroller {
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 14px;
+}
+.cm-editor .cm-content {
+    caret-color: var(--cm-foreground);
+}
+/* Make caret visible in dark mode */
+body.dark .cm-editor .cm-cursor {
+    border-left-color: #ffffff !important;
+}
+body.light .cm-editor .cm-cursor {
+    border-left-color: #000000 !important;
+}
+
+/* Improve JSON key/value readability in dark mode */
+body.dark .cm-editor .cm-content .cm-line { color: var(--cm-foreground); }
+body.dark .cm-editor .cm-content .cm-string { color: #ffd866; }
+body.dark .cm-editor .cm-content .cm-number { color: #9cdcfe; }
+body.dark .cm-editor .cm-content .cm-bool { color: #82aaff; }
+body.dark .cm-editor .cm-content .cm-null { color: #82aaff; }
+body.dark .cm-editor .cm-content .cm-property { color: #f78c6c; }
+body.dark .cm-editor .cm-content .cm-bracket { color: #cccccc; }
+.cm-gutters {
+    background: var(--card-bg);
+    color: var(--muted-text-color);
+    border-right: 1px solid var(--cm-border);
+}
+body.dark .cm-gutters {
+    background: var(--card-bg);
+    color: var(--muted-text-color);
+    border-right: 1px solid var(--cm-border);
+}
+.cm-activeLineGutter {
+    background: rgba(0, 0, 0, 0.04);
+}
+body.dark .cm-activeLineGutter {
+    background: rgba(255, 255, 255, 0.06);
+}
+.cm-activeLine {
+    background: rgba(0, 0, 0, 0.04) !important;
+}
+body.dark .cm-activeLine {
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+.cm-selectionLayer .cm-selectionBackground {
+    background: var(--cm-selection) !important;
+}
+.cm-foldGutter .cm-gutterElement {
+    color: var(--muted-text-color);
+    cursor: pointer;
+}
+.cm-foldGutter .cm-gutterElement:hover {
+    background: var(--cm-selection);
+}
+
+/* High-contrast token colors for dark theme (CM6) */
+body.dark .cmt-keyword { color: #c792ea; }
+body.dark .cmt-string { color: #ffd866; }
+body.dark .cmt-number { color: #9cdcfe; }
+body.dark .cmt-atom { color: #82aaff; } /* true/false/null */
+body.dark .cmt-variableName { color: #b2ccd6; }
+body.dark .cmt-propertyName { color: #f78c6c; }
+body.dark .cmt-typeName { color: #ffcb6b; }
+body.dark .cmt-operator, 
+body.dark .cmt-punctuation, 
+body.dark .cmt-bracket { color: #cccccc; }
+body.dark .cmt-comment { color: #6a9955; }
+
+/* Search panel and matches */
+.cm-panels, .cm-panel {
+    background: var(--card-bg);
+    color: var(--text-color);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+.cm-searchMatch {
+    background: rgba(255, 230, 0, 0.25);
+    outline: 1px solid rgba(255, 230, 0, 0.5);
+}
+body.dark .cm-searchMatch {
+    background: rgba(255, 200, 0, 0.25);
+    outline-color: rgba(255, 200, 0, 0.5);
+}
+
+/* Search/Replace panel controls for readability */
+.cm-panel input[type="text"],
+.cm-panel .cm-textfield {
+    background: var(--cm-background);
+    color: var(--cm-foreground);
+    border: 1px solid var(--cm-border);
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+.cm-panel button {
+    background: var(--cm-selection);
+    color: var(--cm-foreground);
+    border: 1px solid var(--cm-border);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.cm-panel button:hover {
+    filter: brightness(1.05);
+}
+.cm-panel button:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
+.cm-panel label {
+    color: var(--text-color);
+}
+body.dark .cm-panel button {
+    background: #3c3c3c;
+    color: #ffffff;
+    border-color: #555555;
+}
+body.dark .cm-panel button:hover {
+    background: #4a4a4a;
+}
+body.dark .cm-panel input[type="text"],
+body.dark .cm-panel .cm-textfield {
+    background: #1e1e1e;
+    color: #ffffff;
+    border-color: #444444;
+}
+
+/* Autocomplete tooltip (CM6) */
+.cm-tooltip {
+    background: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 20px var(--shadow-color);
+}
+body.dark .cm-tooltip {
+    background: #23232b;
+    color: #fff;
+    border-color: #3a3a3a;
+}
+.cm-tooltip-autocomplete ul {
+    max-height: 260px;
+}
+.cm-tooltip-autocomplete li[aria-selected="true"] {
+    background: var(--cm-selection);
+}
+body.dark .cm-tooltip-autocomplete li[aria-selected="true"] {
+    background: #0b61d6;
+}
+.cm-completionMatchedText {
+    color: var(--primary-color);
 }
 
 /* Editor Toolbar */
@@ -954,30 +1117,12 @@ body.dark #correctionOutput ul {
     padding: 0;
 }
 
-/* CodeMirror Dark Theme */
-body.dark .CodeMirror-hints {
-    background: #23232b !important;
-    color: #fff !important;
-    border: 1px solid #444 !important;
-}
-
-body.dark .CodeMirror-hint {
-    color: #fff !important;
-    background: transparent !important;
-}
-
-body.dark .CodeMirror-hint-active {
-    background: #444 !important;
-    color: #fff !important;
-}
-
-body.dark .CodeMirror-hints::-webkit-scrollbar {
-    background: #23232b;
-}
-
-body.dark .CodeMirror-hints::-webkit-scrollbar-thumb {
-    background: #444;
-}
+/* Legacy CM5 hints (keep for safety) */
+body.dark .CodeMirror-hints { background: #23232b !important; color: #fff !important; border: 1px solid #444 !important; }
+body.dark .CodeMirror-hint { color: #fff !important; background: transparent !important; }
+body.dark .CodeMirror-hint-active { background: #444 !important; color: #fff !important; }
+body.dark .CodeMirror-hints::-webkit-scrollbar { background: #23232b; }
+body.dark .CodeMirror-hints::-webkit-scrollbar-thumb { background: #444; }
 
 /* Контекстное меню */
 .context-menu {
