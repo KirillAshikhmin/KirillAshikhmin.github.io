@@ -5,8 +5,8 @@
 // -----------------------------
 // CodeMirror 6 compatibility shim for CM5 API
 // -----------------------------
-import {EditorState, EditorSelection, Compartment} from "https://esm.sh/@codemirror/state@6";
-import {EditorView, keymap, drawSelection} from "https://esm.sh/@codemirror/view@6";
+import {EditorState, EditorSelection, Compartment, StateEffect, StateField} from "https://esm.sh/@codemirror/state@6";
+import {EditorView, keymap, drawSelection, lineNumbers, Decoration} from "https://esm.sh/@codemirror/view@6";
 import {history, historyKeymap, defaultKeymap} from "https://esm.sh/@codemirror/commands@6";
 import {defaultHighlightStyle, syntaxHighlighting, foldGutter, HighlightStyle} from "https://esm.sh/@codemirror/language@6";
 import {json} from "https://esm.sh/@codemirror/lang-json@6";
@@ -213,17 +213,36 @@ import { buildSuggestions, getCurrentJsonPath, getHintsForPathImproved, customJs
     const cursorHandlers = [];
     const focusHandlers = [];
 
+    // CM6 decoration-based error line highlighter to survive re-rendering
+    const addErrorMark = StateEffect.define();
+    const clearErrorMarks = StateEffect.define();
+    const errorMark = Decoration.line({ class: 'error-line' });
+    const errorMarksField = StateField.define({
+      create() { return Decoration.none; },
+      update(deco, tr) {
+        deco = deco.map(tr.changes);
+        for (const e of tr.effects) {
+          if (e.is(clearErrorMarks)) deco = Decoration.none;
+          if (e.is(addErrorMark)) deco = deco.update({ add: [errorMark.range(e.value)] });
+        }
+        return deco;
+      },
+      provide: f => EditorView.decorations.from(f)
+    });
+
     const baseExtensions = [
       history(),
       drawSelection(),
       json(),
       highlightCompartment.of(syntaxHighlighting(lightHighlight)),
+      lineNumbers(),
       foldGutter(),
       autocompletion({
         override: [ (ctx)=> adapter && registeredJsonHintHelper ? adapter._completionSource(ctx) : null ],
         activateOnTyping: false
       }),
       keymap.of([ ...defaultKeymap, ...historyKeymap, ...searchKeymap, ...completionKeymap, ...buildKeymap(options) ]),
+      errorMarksField,
       EditorView.updateListener.of((update)=>{
         if (update.docChanged){ changeHandlers.forEach(fn=>{ try{ fn(); }catch{} }); }
         if (update.selectionSet){ cursorHandlers.forEach(fn=>{ try{ fn(); }catch{} }); }
@@ -288,16 +307,17 @@ import { buildSuggestions, getCurrentJsonPath, getHintsForPathImproved, customJs
       },
       addLineClass(line, /*where*/_w, className){
         try {
-          const lines = view.dom.querySelectorAll('.cm-line');
-          const el = lines[(line|0)] ;
-          if (el) el.classList.add(className);
+          if (className !== 'error-line') return;
+          const ln = Math.max(0, Math.min(view.state.doc.lines - 1, (line|0)));
+          const pos = view.state.doc.line(ln + 1).from;
+          view.dispatch({ effects: addErrorMark.of(pos) });
         } catch {}
       },
       removeLineClass(line, /*where*/_w, className){
         try {
-          const lines = view.dom.querySelectorAll('.cm-line');
-          const el = lines[(line|0)] ;
-          if (el) el.classList.remove(className);
+          if (className !== 'error-line') return;
+          // Simplest approach: clear all error marks (they will be re-added as needed)
+          view.dispatch({ effects: clearErrorMarks.of(null) });
         } catch {}
       },
       scrollIntoView(pos, yMargin){
