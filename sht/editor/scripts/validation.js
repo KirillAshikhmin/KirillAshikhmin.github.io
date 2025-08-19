@@ -5,9 +5,25 @@
 window.highlightErrorLine = function(path, jsonStr) {
     if (!path) return 1;
     const lines = jsonStr.split('\n');
+    
+    // Специальная обработка для корневых полей
+    if (!path.includes('.') && !path.includes('[')) {
+        const keyRegex = new RegExp(`"${path}"\\s*:`);
+        const match = keyRegex.exec(jsonStr);
+        if (match) {
+            const lineNumber = jsonStr.substring(0, match.index).split('\n').length;
+            if (lineNumber > 0 && lineNumber <= lines.length) {
+                window.editor.addLineClass(lineNumber - 1, 'background', 'error-line');
+            }
+            return lineNumber;
+        }
+        return 1; // Если не найдено, возвращаем строку 1
+    }
+    
     const segments = path.replace(/^\./, '').split(/\.|\[(\d+)\]/).filter(p => p && p.trim() !== '');
     let searchScope = jsonStr;
     let totalOffsetChars = 0;
+    
     for (const segment of segments) {
         const isArrayIndex = /^\d+$/.test(segment);
         if (isArrayIndex) {
@@ -71,6 +87,7 @@ window.highlightErrorLine = function(path, jsonStr) {
             searchScope = searchScope.substring(match.index + match[0].length);
         }
     }
+    
     const lineNumber = jsonStr.substring(0, totalOffsetChars).split('\n').length;
     if (lineNumber > 0 && lineNumber <= lines.length) {
         window.editor.addLineClass(lineNumber - 1, 'background', 'error-line');
@@ -82,6 +99,8 @@ window.clearErrorHighlights = function() {
     for (let i = 0; i < window.editor.lineCount(); i++) {
         window.editor.removeLineClass(i, 'background', 'error-line');
     }
+    // Очищаем блок предупреждений
+    document.getElementById('warningOutput').innerHTML = '';
 };
 
 window.validateServiceAndCharacteristics = function(json, errors, warnings, jsonStr) {
@@ -135,15 +154,42 @@ window.translateAjvError = function(error, json, jsonStr) {
     const jsonPointerToPath = (pointer) => {
         // Делегируем утилите
         if (!pointer) return '';
-        const segments = window.jsonPointerToSegments(pointer);
-        let path = '';
-        segments.forEach((seg, idx) => {
-            if (/^\d+$/.test(seg)) path += `[${parseInt(seg, 10)}]`; else path += (idx === 0 ? '' : '.') + seg;
-        });
-        return path;
+        if (typeof window.jsonPointerToSegments === 'function') {
+            const segments = window.jsonPointerToSegments(pointer);
+            let path = '';
+            segments.forEach((seg, idx) => {
+                if (/^\d+$/.test(seg)) path += `[${parseInt(seg, 10)}]`; else path += (idx === 0 ? '' : '.') + seg;
+            });
+            return path;
+        }
+        // Fallback если функция недоступна
+        return pointer.replace(/^\//, '').replace(/\//g, '.');
     };
     
     const pathForHighlight = jsonPointerToPath(path);
+    
+    // Специальная обработка для корневых ошибок
+    if (!path || path === '') {
+        switch (error.keyword) {
+            case 'additionalProperties':
+                const extraProp = error.params.additionalProperty;
+                const line1 = window.highlightErrorLine(extraProp, jsonStr);
+                translated = `Поле "${extraProp}" в корне объекта не разрешено по схеме (строка ${line1})`;
+                return { message: translated, line: line1 };
+            case 'required':
+                const missingProp = error.params.missingProperty;
+                // Для отсутствующих полей подсвечиваем строку 1
+                window.editor.addLineClass(0, 'background', 'error-line');
+                translated = `В объекте отсутствует обязательное поле "${missingProp}" (строка 1)`;
+                return { message: translated, line: 1 };
+            default:
+                // Для других корневых ошибок подсвечиваем строку 1
+                window.editor.addLineClass(0, 'background', 'error-line');
+                translated = `Ошибка в корне объекта: ${message} (строка 1)`;
+                return { message: translated, line: 1 };
+        }
+    }
+    
     const serviceMatch = pathForHighlight.match(/\.services\[(\d+)\]/);
     if (serviceMatch) {
         try {
@@ -169,45 +215,58 @@ window.translateAjvError = function(error, json, jsonStr) {
             contextPrefix = '';
         }
     }
-            const line = window.highlightErrorLine(pathForHighlight, jsonStr);
     switch (error.keyword) {
         case 'additionalProperties':
             const extraProp = error.params.additionalProperty;
-            translated = `Поле "${extraProp}" в ${path || 'корне объекта'} не разрешено по схеме (строка ${line})`;
+            const line1 = window.highlightErrorLine(extraProp, jsonStr);
+            translated = `Поле "${extraProp}" в ${path || 'корне объекта'} не разрешено по схеме (строка ${line1})`;
             break;
         case 'required':
-            translated = `В ${path || 'объекте'} отсутствует обязательное поле "${error.params.missingProperty}" (строка ${line})`;
+            const missingProp = error.params.missingProperty;
+            const line2 = window.highlightErrorLine(missingProp, jsonStr);
+            translated = `В ${path || 'объекте'} отсутствует обязательное поле "${missingProp}" (строка ${line2})`;
             break;
         case 'type':
-            translated = `Поле ${path} имеет неверный тип: ожидается ${error.params.type}, найдено ${typeof json[path.split('.').reduce((o, k) => o && o[k], json)]} (строка ${line})`;
+            const line3 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `Поле ${path} имеет неверный тип: ожидается ${error.params.type}, найдено ${typeof json[path.split('.').reduce((o, k) => o && o[k], json)]} (строка ${line3})`;
             break;
         case 'enum':
-            translated = `Поле ${path} имеет недопустимое значение. Допустимые значения: ${error.params.allowedValues.join(', ')} (строка ${line})`;
+            const line4 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `Поле ${path} имеет недопустимое значение. Допустимые значения: ${error.params.allowedValues.join(', ')} (строка ${line4})`;
             break;
         case 'anyOf':
-            translated = `Поле ${path} должно соответствовать одной из схем, определённых в JSON Schema (строка ${line})`;
+            const line5 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `Поле ${path} должно соответствовать одной из схем, определённых в JSON Schema (строка ${line5})`;
             break;
         case 'dependencies':
-            translated = `Поле ${path} должно содержать свойство ${error.params.missingProperty}, если присутствует ${error.params.property} (строка ${line})`;
+            const line6 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `Поле ${path} должно содержать свойство ${error.params.missingProperty}, если присутствует ${error.params.property} (строка ${line6})`;
             break;
         case 'propertyNames':
             const badName = (error.params && error.params.propertyName) ? error.params.propertyName : '';
-            translated = `Недопустимое имя свойства "${badName}" в ${path || 'объекте'} (строка ${line})`;
+            const line7 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `Недопустимое имя свойства "${badName}" в ${path || 'объекте'} (строка ${line7})`;
             break;
         case 'pattern':
             // Читаем ожидаемый паттерн из сообщения/параметров
             const pattern = (error.params && error.params.pattern) ? error.params.pattern : (error.message || '').match(/\"([^\"]+)\"$/)?.[1] || '';
-            translated = `${contextPrefix || 'Ошибка в '}${pathForHighlight || path}: должно соответствовать шаблону "${pattern}" (строка ${line})`;
+            const line8 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `${contextPrefix || 'Ошибка в '}${pathForHighlight || path}: должно соответствовать шаблону "${pattern}" (строка ${line8})`;
             break;
         default:
-            translated = `Ошибка в ${path}: ${message} (строка ${line})`;
+            const line9 = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+            translated = `Ошибка в ${path}: ${message} (строка ${line9})`;
     }
-    return { message: translated, line };
+    
+    // Возвращаем номер строки для последней подсвеченной ошибки
+    const lastLine = window.highlightErrorLine(pathForHighlight || path, jsonStr);
+    return { message: translated, line: lastLine };
 };
 
 window.autoFixJson = function(isManual = true) {
     try {
         document.getElementById('errorOutput').textContent = '';
+        document.getElementById('warningOutput').textContent = '';
         document.getElementById('autoFixContainer').innerHTML = '';
         if (isManual) {
             document.getElementById('correctionOutput').textContent = '';
@@ -248,6 +307,13 @@ window.autoFixJson = function(isManual = true) {
         }
         window.clearErrorHighlights();
         window.editor.refresh();
+        
+        // Обновляем форму, если она активна
+        try {
+            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                window.renderFormEditor();
+            }
+        } catch(_) {}
         if (corrections.length > 0) {
             setTimeout(() => {
                 window.validateJsonInternal(true);
@@ -291,6 +357,20 @@ window.formatJson = function() {
             } catch (_) {}
         }, 0);
         window.clearErrorHighlights();
+        
+        // Автоматическая валидация после форматирования
+        setTimeout(() => {
+            if (typeof window.autoValidateEditorContent === 'function') {
+                window.autoValidateEditorContent();
+            }
+        }, 100);
+        
+        // Обновляем форму, если она активна
+        try {
+            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                window.renderFormEditor();
+            }
+        } catch(_) {}
         // Не засоряем вывод при сценарии one-click
         if (!window.formatFromOneClick) {
             const co = document.getElementById('correctionOutput');
@@ -310,6 +390,7 @@ window.validateJson = function(suppressCorrectionOutput = false) {
         return;
     }
     document.getElementById('errorOutput').textContent = '';
+    document.getElementById('warningOutput').textContent = '';
     if (!suppressCorrectionOutput) document.getElementById('correctionOutput').textContent = '';
     document.getElementById('autoFixContainer').innerHTML = '';
     window.validateJsonInternal(false, suppressCorrectionOutput);
@@ -322,10 +403,13 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
         if (Array.isArray(json)) {
             const line = window.highlightErrorLine('', jsonStr);
             document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка: Введите один шаблон (объект JSON), а не массив (строка ${line})</li></ul>`;
+            document.getElementById('warningOutput').innerHTML = '';
             document.getElementById('autoFixContainer').innerHTML = '';
             return;
         }
         window.clearErrorHighlights();
+        // Очищаем блок предупреждений
+        document.getElementById('warningOutput').textContent = '';
         const errors = [];
         const warnings = [];
         const errorLines = new Set();
@@ -335,10 +419,24 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
             )
         );
         if (hasTopicGetOrSet) {
-            if (!json.modelId || !/\(.*\)/.test(json.modelId)) {
-                const line = window.highlightErrorLine('modelId', jsonStr);
-                errors.push(`В MQTT шаблонах должно быть регулярное выражение в modelId (строка ${line})`);
-                errorLines.add(line);
+            // Проверяем поле modelIds (новое) или modelId (старое) для MQTT
+            let hasValidModelId = false;
+            if (json.modelIds && Array.isArray(json.modelIds)) {
+                hasValidModelId = json.modelIds.some(id => id && typeof id === 'string' && /\(.*\)/.test(id));
+            } else if (json.modelId && typeof json.modelId === 'string') {
+                hasValidModelId = /\(.*\)/.test(json.modelId);
+            }
+            
+            if (!hasValidModelId) {
+                // Определяем, какое поле проверять для подсветки
+                let fieldToCheck = 'modelIds';
+                if (json.modelIds && Array.isArray(json.modelIds)) {
+                    fieldToCheck = 'modelIds';
+                } else if (json.modelId && typeof json.modelId === 'string') {
+                    fieldToCheck = 'modelId';
+                }
+                const line = window.highlightErrorLine(fieldToCheck, jsonStr);
+                warnings.push(`В MQTT шаблонах должно быть регулярное выражение в modelIds или modelId (строка ${line})`);
             }
             json.services.forEach((service, serviceIndex) => {
                 if (service.characteristics && Array.isArray(service.characteristics)) {
@@ -348,13 +446,11 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
                             links.forEach((link, linkIndex) => {
                                 if (link.topicGet && !link.topicGet.includes('(1)')) {
                                     const line = window.highlightErrorLine(`services[${serviceIndex}].characteristics[${charIndex}].link[${linkIndex}].topicGet`, jsonStr);
-                                    errors.push(`Поле topicGet в характеристике ${char.type || 'без типа'} не содержит подстроку "(1)" (строка ${line})`);
-                                    errorLines.add(line);
+                                    warnings.push(`Поле topicGet в характеристике ${char.type || 'без типа'} не содержит подстроку "(1)" (строка ${line})`);
                                 }
                                 if (link.topicSet && !link.topicSet.includes('(1)')) {
                                     const line = window.highlightErrorLine(`services[${serviceIndex}].characteristics[${charIndex}].link[${linkIndex}].topicSet`, jsonStr);
-                                    errors.push(`Поле topicSet в характеристике ${char.type || 'без типа'} не содержит подстроку "(1)" (строка ${line})`);
-                                    errorLines.add(line);
+                                    warnings.push(`Поле topicSet в характеристике ${char.type || 'без типа'} не содержит подстроку "(1)" (строка ${line})`);
                                 }
                             });
                         }
@@ -367,8 +463,30 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
         const validate = ajv.compile(window.schema);
         const valid = validate(json);
         let errorOutput = '';
+        // Broadcast for form-view consumers
+        try {
+            const validationEvent = new CustomEvent('jsonValidated', { detail: { valid, errors: (validate.errors||[]), json, jsonStr } });
+            document.dispatchEvent(validationEvent);
+        } catch(_) {}
         if (!valid) {
             const allErrors = validate.errors || [];
+            
+            // Специальная обработка для корневых ошибок
+            const rootErrors = allErrors.filter(error => {
+                const path = error.instancePath || error.dataPath || '';
+                return path === '' || (!path.includes('/') && !path.includes('.'));
+            });
+            
+            // Подсвечиваем корневые ошибки
+            rootErrors.forEach(error => {
+                if (error.keyword === 'additionalProperties' && error.params && error.params.additionalProperty) {
+                    window.highlightErrorLine(error.params.additionalProperty, jsonStr);
+                } else if (error.keyword === 'required' && error.params && error.params.missingProperty) {
+                    // Для отсутствующих полей подсвечиваем строку 1, так как они должны быть в корне
+                    window.editor.addLineClass(0, 'background', 'error-line');
+                }
+            });
+            
             const filteredErrors = allErrors.filter(error => {
                 const path = error.instancePath || error.dataPath || '';
                 const hasDeeper = allErrors.some(otherError => {
@@ -400,7 +518,7 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
                 const msg = res.message;
                 // Определяем ключ группы
                 const ptr = err.instancePath || err.dataPath || '';
-                const p = window.jsonPointerToSegments(ptr);
+                const p = typeof window.jsonPointerToSegments === 'function' ? window.jsonPointerToSegments(ptr) : [];
                 let groupKey = 'Общие ошибки';
                 let serviceKey = null;
                 let charKey = null;
@@ -430,12 +548,18 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
             }).join('');
             errorOutput += items;
         }
+        // Отображаем предупреждения в отдельном блоке
+        if (warnings.length > 0) {
+            const warningBox = document.getElementById('warningOutput');
+            warningBox.innerHTML = `<ul>${warnings.map(warn => `<li>${warn}</li>`).join('')}</ul>`;
+        } else {
+            document.getElementById('warningOutput').innerHTML = '';
+        }
+        
         if (errors.length > 0) {
             errorOutput += errors.map(err => `<li>${err}</li>`).join('');
         }
-        if (warnings.length > 0) {
-            errorOutput += warnings.map(warn => `<li>Предупреждение: ${warn}</li>`).join('');
-        }
+        
         if (errorOutput) {
             document.getElementById('autoFixContainer').innerHTML = `<button id="autoFixButton" class="btn btn-warning" onclick="autoFixJson()">Попробовать исправить автоматически</button>`;
             const errorBox = document.getElementById('errorOutput');
@@ -459,6 +583,7 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
         } else {
             document.getElementById('autoFixContainer').innerHTML = '';
             document.getElementById('errorOutput').innerHTML = '';
+            document.getElementById('warningOutput').innerHTML = '';
             if (!isAutoValidation && !suppressCorrectionOutput) {
                 document.getElementById('correctionOutput').innerHTML = `<ul><li>JSON валиден по схеме</li></ul>`;
             }
@@ -469,6 +594,11 @@ window.validateJsonInternal = function(isAutoValidation = false, suppressCorrect
         window.clearErrorHighlights();
         window.editor.addLineClass(line - 1, 'background', 'error-line');
         document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка синтаксиса JSON: ${e.message} (строка ${line})</li></ul>`;
+        document.getElementById('warningOutput').innerHTML = '';
         document.getElementById('autoFixContainer').innerHTML = '';
+        try {
+            const errEvent = new CustomEvent('jsonValidated', { detail: { valid: false, errors: [{ message: e.message, instancePath: '' }], json: null, jsonStr: window.editor.getValue() } });
+            document.dispatchEvent(errEvent);
+        } catch(_) {}
     }
 }; 

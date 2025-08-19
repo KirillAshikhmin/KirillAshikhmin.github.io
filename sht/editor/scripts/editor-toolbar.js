@@ -112,6 +112,36 @@ window.initEditorToolbar = function() {
     const editorContainer = document.getElementById('jsonEditor').parentElement;
     editorContainer.parentElement.insertBefore(toolbar, editorContainer);
 
+    // Функция для скрытия/показа кнопок добавления в зависимости от вида
+    window.updateToolbarVisibility = function() {
+        const isFormView = document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none';
+        const addButtons = ['addServiceBtn', 'addCharacteristicBtn', 'addOptionBtn', 'addLinkBtn'];
+        
+        addButtons.forEach(btnId => {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.style.display = isFormView ? 'none' : 'inline-flex';
+            }
+        });
+        
+        // Скрываем/показываем лейбл "Добавить:" и всю секцию
+        const addLabel = document.querySelector('.toolbar-label');
+        const addSection = document.querySelector('.toolbar-row-3');
+        if (addLabel) {
+            addLabel.style.display = isFormView ? 'none' : 'inline';
+        }
+        if (addSection) {
+            addSection.style.display = isFormView ? 'none' : 'flex';
+        }
+    };
+
+    // Наблюдаем за изменениями в DOM для автоматического скрытия/показа кнопок
+    const observer = new MutationObserver(updateToolbarVisibility);
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    // Вызываем функцию сразу после создания тулбара
+    window.updateToolbarVisibility();
+
     // Обработчики кнопок
     document.getElementById('undoBtn').addEventListener('click', () => {
         window.editor.undo();
@@ -141,6 +171,14 @@ window.initEditorToolbar = function() {
                     json.services.push(...services);
                     window.editor.setValue(JSON.stringify(json, null, 2));
                     window.editor.refresh();
+                    
+                    // Автоматическая валидация после добавления сервиса
+                    setTimeout(() => {
+                        if (typeof window.autoValidateEditorContent === 'function') {
+                            window.autoValidateEditorContent();
+                        }
+                    }, 100);
+                    
                     window.showToast('Сервис добавлен через мастер', 'success');
                 } catch(e) { window.showToast('Ошибка добавления сервиса: '+e.message, 'error'); }
             });
@@ -164,6 +202,14 @@ window.initEditorToolbar = function() {
                         svc.characteristics.push(...chars.map(c=>({ type: c.type || '', link: [{}] })));
                         window.editor.setValue(JSON.stringify(json, null, 2));
                         window.editor.refresh();
+                        
+                        // Автоматическая валидация после добавления характеристик
+                        setTimeout(() => {
+                            if (typeof window.autoValidateEditorContent === 'function') {
+                                window.autoValidateEditorContent();
+                            }
+                        }, 100);
+                        
                         window.showToast('Характеристики добавлены через мастер', 'success');
                     }, existingTypesForDialog);
                     return;
@@ -188,6 +234,21 @@ window.initEditorToolbar = function() {
                         char.link.push(...links);
                         window.editor.setValue(JSON.stringify(json, null, 2));
                         window.editor.refresh();
+                        
+                        // Автоматическая валидация после добавления линков
+                        setTimeout(() => {
+                            if (typeof window.autoValidateEditorContent === 'function') {
+                                window.autoValidateEditorContent();
+                            }
+                        }, 100);
+                        
+                        // Обновляем форму, если она активна
+                        try {
+                            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                window.renderFormEditor();
+                            }
+                        } catch(_) {}
+                        
                         window.showToast('Линки добавлены через мастер', 'success');
                     });
                     return;
@@ -207,6 +268,21 @@ window.initEditorToolbar = function() {
                     json.options.push(opt);
                     window.editor.setValue(JSON.stringify(json, null, 2));
                     window.editor.refresh();
+                    
+                    // Автоматическая валидация после добавления опции
+                    setTimeout(() => {
+                        if (typeof window.autoValidateEditorContent === 'function') {
+                            window.autoValidateEditorContent();
+                        }
+                    }, 100);
+                    
+                    // Обновляем форму, если она активна
+                    try {
+                        if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                            window.renderFormEditor();
+                        }
+                    } catch(_) {}
+                    
                     window.showToast('Опция добавлена через мастер', 'success');
                 } catch(e) { window.showToast('Ошибка добавления опции: '+e.message, 'error'); }
             });
@@ -253,6 +329,14 @@ window.initEditorToolbar = function() {
             navigator.clipboard.readText().then(text => {
                 if (text) {
                     window.editor.replaceSelection(text);
+                    
+                    // Обновляем форму, если она активна
+                    try {
+                        if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                            window.renderFormEditor();
+                        }
+                    } catch(_) {}
+                    
                     window.showToast('Вставлено', 'success');
                 }
             }).catch(e => {
@@ -411,11 +495,34 @@ window.createEmptyTemplate = function() {
             catalogId: 0,
             services: []
         };
+        
+        // Очищаем состояние свёрнутости при создании нового шаблона
+        if (window.clearFormCollapsedState) {
+            window.clearFormCollapsedState();
+        }
+        if (window.clearFormDatalists) {
+            window.clearFormDatalists();
+        }
+        
         window.editor.setValue(JSON.stringify(emptyTemplate, null, 2));
         window.editor.refresh();
         document.getElementById('errorOutput').textContent = '';
         document.getElementById('correctionOutput').textContent = '';
         document.getElementById('autoFixContainer').innerHTML = '';
+        
+        // Автоматическая валидация пустого шаблона
+        setTimeout(() => {
+            if (typeof window.autoValidateEditorContent === 'function') {
+                window.autoValidateEditorContent();
+            }
+        }, 100);
+        
+        // Обновляем форму, если она активна
+        try {
+            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                window.renderFormEditor();
+            }
+        } catch(_) {}
     });
 };
 
@@ -504,6 +611,14 @@ function addService() {
                 
                 window.editor.setValue(JSON.stringify(json, null, 2));
                 window.editor.refresh();
+                
+                // Обновляем форму, если она активна
+                try {
+                    if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                        window.renderFormEditor();
+                    }
+                } catch(_) {}
+                
                 window.showToast('Сервис добавлен', 'success');
             });
         });
@@ -588,6 +703,13 @@ function addCharacteristic() {
                 
                 window.editor.setValue(JSON.stringify(json, null, 2));
                 window.editor.refresh();
+                
+                // Обновляем форму, если она активна
+                try {
+                    if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                        window.renderFormEditor();
+                    }
+                } catch(_) {}
                 
                 if (added > 0) {
                     window.showToast(`Характеристики добавлены в сервис ${targetServiceIndex + 1}`, 'success');
@@ -1170,6 +1292,13 @@ window.handleClipboardPaste = function(onControllerDetected, onControllerNotDete
                     document.getElementById('correctionOutput').textContent = '';
                     document.getElementById('autoFixContainer').innerHTML = '';
                     
+                    // Автоматическая валидация вставленного содержимого
+                    setTimeout(() => {
+                        if (typeof window.autoValidateEditorContent === 'function') {
+                            window.autoValidateEditorContent();
+                        }
+                    }, 100);
+                    
                     window.showToast(`Контроллер ${detectedController} определен автоматически`, 'success');
                     
                     if (onControllerDetected) {
@@ -1194,6 +1323,13 @@ window.handleClipboardPaste = function(onControllerDetected, onControllerNotDete
                         document.getElementById('errorOutput').textContent = '';
                         document.getElementById('correctionOutput').textContent = '';
                         document.getElementById('autoFixContainer').innerHTML = '';
+                        
+                        // Автоматическая валидация вставленного содержимого
+                        setTimeout(() => {
+                            if (typeof window.autoValidateEditorContent === 'function') {
+                                window.autoValidateEditorContent();
+                            }
+                        }, 100);
                         
                         if (onControllerNotDetected) {
                             onControllerNotDetected(controllerValue, clipboardData);

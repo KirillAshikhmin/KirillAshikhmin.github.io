@@ -115,6 +115,14 @@
                                         </button>
                                     </div>
                                 </div>
+                                <div class="center-buttons">
+                                    <div class="btn-group" role="group" aria-label="Переключить вид">
+                                        <input type="radio" class="btn-check" name="viewToggle" id="viewCode" autocomplete="off" checked>
+                                        <label class="btn btn-outline-primary" for="viewCode"><i class="fas fa-code"></i> Код</label>
+                                        <input type="radio" class="btn-check" name="viewToggle" id="viewForm" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="viewForm"><i class="fas fa-list-alt"></i> Форма <span class="alpha-badge">Alpha</span></label>
+                                    </div>
+                                </div>
                                 <div class="right-buttons">
                                     <button onclick="showServiceTypes()" class="btn btn-info">
                                         <i class="fas fa-list"></i> Типы сервисов
@@ -126,6 +134,7 @@
                             </div>
                             <div class="editor-container">
                                 <div id="jsonEditor"></div>
+                                <div id="formEditor" class="form-editor" style="display:none;"></div>
                             </div>
                             <div id="cursorPathMap" class="cursor-path"></div>
                             <div class="button-row-bottom">
@@ -156,6 +165,7 @@
                                 </div>
                             </div>
                             <div id="correctionOutput"></div>
+                            <div id="warningOutput"></div>
                             <div id="errorOutput"></div>
 
                             <!-- Instructions Section -->
@@ -390,15 +400,44 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="scripts/field-tips.js"></script>
     <script src="scripts/utils.js"></script>
     <script src="scripts/corrections.js"></script>
     <script type="module" src="scripts/hints.js"></script>
     <script type="module" src="scripts/editor.js"></script>
+    <!-- <script>
+      // Гарантируем раннюю доступность FIELD_TIPS для формы даже на первой загрузке
+      document.addEventListener('schemaLoaded', function(){
+        try { if (!window.__FIELD_TIPS__ && window.FIELD_TIPS) window.__FIELD_TIPS__ = window.FIELD_TIPS; } catch(_) {}
+      });
+      // На всякий случай при DOMContentLoaded
+      document.addEventListener('DOMContentLoaded', function(){
+        try { if (!window.__FIELD_TIPS__ && window.FIELD_TIPS) window.__FIELD_TIPS__ = window.FIELD_TIPS; } catch(_) {}
+      });
+    </script> -->
     <script src="scripts/editor-toolbar.js"></script>
-    <script src="scripts/validation.js"></script>
+            <script src="scripts/validation.js"></script>
+        <script src="scripts/combobox.js"></script>
+        <script src="scripts/form-view.js"></script>
     <script src="scripts/archive.js"></script>
     <script src="scripts/context-menu.js"></script>
     <script src="scripts/service-types.js"></script>
+    
+    <!-- Диалог для длинных подсказок об ошибках -->
+    <div id="errorDialog" class="error-dialog-overlay">
+        <div class="error-dialog">
+            <div class="error-dialog-header">
+                <h3 class="error-dialog-title" id="errorDialogTitle">Ошибка валидации</h3>
+                <button class="error-dialog-close" id="errorDialogClose">×</button>
+            </div>
+            <div class="error-dialog-content">
+                <p class="error-dialog-message" id="errorDialogMessage"></p>
+            </div>
+            <div class="error-dialog-footer">
+                <button class="error-dialog-ok" id="errorDialogOk">ОК</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

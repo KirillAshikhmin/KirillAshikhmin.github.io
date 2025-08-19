@@ -14,16 +14,22 @@
 // (сюда переносится validateServiceAndCharacteristics, translateAjvError, autoFixJson, validateJson, validateJsonInternal, applyCorrections, correctJson, oneClickFix, oneClickFixRun, formatJson, highlightErrorLine, clearErrorHighlights)
 
 // --- Архивы и пакетная обработка ---
-// (сюда переносится processTemplateFiles, processZipArchive, processTarGzArchive)
+// (функции processTemplateFiles, processZipArchive, processTarGzArchive находятся в archive.js)
 
 // --- Экспортируемые функции ---
 // (экспортируются applyCorrections, validateServiceAndCharacteristics и другие нужные функции)
 
 window.applyCorrections = function(jsonToCorrect, schema, allowedInputTypesFromSchema) {
+    // Функция применяет исправления к шаблону согласно новым требованиям Sprut.Hub
+    // - Преобразует manufacturerId/modelId в массивы manufacturerIds/modelIds
+    // - Обрабатывает разделители | в строках
+    // - Удаляет скобки из значений
+    // - Очищает массивы от дубликатов и пустых значений
+    // - Удаляет неиспользуемые поля (status, date, overview, url, ali, ali2)
     const newJson = JSON.parse(JSON.stringify(jsonToCorrect)); // Глубокая копия
     const corrections = [];
 
-    // Преобразование topicSearch в modelId
+    // Преобразование topicSearch в modelIds
     let topicSearchValue = null;
     function findAndRemoveTopicSearch(obj) {
         let removed = false;
@@ -48,8 +54,15 @@ window.applyCorrections = function(jsonToCorrect, schema, allowedInputTypesFromS
 
     if (findAndRemoveTopicSearch(newJson)) {
         if (topicSearchValue) {
-            newJson.modelId = topicSearchValue;
-            corrections.push(`Значение topicSearch перенесено в modelId и все его вхождения удалены.`);
+            // Создаем массив modelIds если его нет
+            if (!newJson.modelIds) {
+                newJson.modelIds = [];
+            }
+            // Добавляем значение topicSearch в массив modelIds
+            if (!newJson.modelIds.includes(topicSearchValue)) {
+                newJson.modelIds.push(topicSearchValue);
+            }
+            corrections.push(`Значение topicSearch перенесено в modelIds и все его вхождения удалены.`);
         } else {
             corrections.push(`Пустое поле topicSearch удалено из шаблона.`);
         }
@@ -128,14 +141,137 @@ window.applyCorrections = function(jsonToCorrect, schema, allowedInputTypesFromS
         corrections.push(`Поле template преобразовано в массив`);
     }
 
-    // Исправление manufacturerId и modelId
-    if (typeof newJson.manufacturerId === 'string' && newJson.manufacturerId.startsWith('(') && newJson.manufacturerId.endsWith(')')) {
-        newJson.manufacturerId = newJson.manufacturerId.slice(1, -1);
-        corrections.push(`Удалены скобки из manufacturerId`);
+    // Преобразование старых полей manufacturerId и modelId в новые массивы manufacturerIds и modelIds
+    if (newJson.hasOwnProperty('manufacturerId')) {
+        if (!newJson.manufacturerIds) {
+            newJson.manufacturerIds = [];
+        }
+        if (typeof newJson.manufacturerId === 'string') {
+            let value = newJson.manufacturerId;
+            // Удаляем скобки если есть
+            if (value.startsWith('(') && value.endsWith(')')) {
+                value = value.slice(1, -1);
+                corrections.push(`Удалены скобки из manufacturerId`);
+            }
+            // Разбиваем по разделителю | и добавляем в массив
+            if (value.includes('|')) {
+                const values = value.split('|').filter(v => v.trim());
+                values.forEach(v => {
+                    if (!newJson.manufacturerIds.includes(v.trim())) {
+                        newJson.manufacturerIds.push(v.trim());
+                    }
+                });
+                corrections.push(`Поле manufacturerId преобразовано в массив manufacturerIds`);
+            } else if (value.trim()) {
+                if (!newJson.manufacturerIds.includes(value.trim())) {
+                    newJson.manufacturerIds.push(value.trim());
+                }
+                corrections.push(`Поле manufacturerId преобразовано в массив manufacturerIds`);
+            }
+        }
+        delete newJson.manufacturerId;
     }
-    if (typeof newJson.modelId === 'string' && newJson.modelId.startsWith('(') && newJson.modelId.endsWith(')')) {
-        newJson.modelId = newJson.modelId.slice(1, -1);
-        corrections.push(`Удалены скобки из modelId`);
+
+    if (newJson.hasOwnProperty('modelId')) {
+        if (!newJson.modelIds) {
+            newJson.modelIds = [];
+        }
+        if (typeof newJson.modelId === 'string') {
+            let value = newJson.modelId;
+            // Удаляем скобки если есть
+            if (value.startsWith('(') && value.endsWith(')')) {
+                value = value.slice(1, -1);
+                corrections.push(`Удалены скобки из modelId`);
+            }
+            // Разбиваем по разделителю | и добавляем в массив
+            if (value.includes('|')) {
+                const values = value.split('|').filter(v => v.trim());
+                values.forEach(v => {
+                    if (!newJson.modelIds.includes(v.trim())) {
+                        newJson.modelIds.push(v.trim());
+                    }
+                });
+                corrections.push(`Поле modelId преобразовано в массив modelIds`);
+            } else if (value.trim()) {
+                if (!newJson.modelIds.includes(value.trim())) {
+                    newJson.modelIds.push(value.trim());
+                }
+                corrections.push(`Поле modelId преобразовано в массив modelIds`);
+            }
+        }
+        delete newJson.modelId;
+    }
+
+    // Обработка существующих массивов manufacturerIds и modelIds для очистки и валидации
+    if (newJson.manufacturerIds && Array.isArray(newJson.manufacturerIds)) {
+        // Удаляем пустые значения и дубликаты
+        const originalLength = newJson.manufacturerIds.length;
+        newJson.manufacturerIds = newJson.manufacturerIds
+            .filter(id => id && typeof id === 'string' && id.trim())
+            .map(id => id.trim())
+            .filter((id, index, arr) => arr.indexOf(id) === index); // удаляем дубликаты
+        
+        if (newJson.manufacturerIds.length !== originalLength) {
+            corrections.push(`Очищен массив manufacturerIds: удалены пустые значения и дубликаты`);
+        }
+    } else if (newJson.manufacturerIds && !Array.isArray(newJson.manufacturerIds)) {
+        // Если поле существует, но не является массивом, преобразуем его
+        if (typeof newJson.manufacturerIds === 'string') {
+            let value = newJson.manufacturerIds;
+            if (value.includes('|')) {
+                newJson.manufacturerIds = value.split('|').filter(v => v.trim()).map(v => v.trim());
+                corrections.push(`Поле manufacturerIds преобразовано из строки в массив`);
+            } else {
+                newJson.manufacturerIds = [value.trim()];
+                corrections.push(`Поле manufacturerIds преобразовано из строки в массив`);
+            }
+        } else {
+            newJson.manufacturerIds = [];
+            corrections.push(`Поле manufacturerIds преобразовано в пустой массив`);
+        }
+    }
+
+    if (newJson.modelIds && Array.isArray(newJson.modelIds)) {
+        // Удаляем пустые значения и дубликаты
+        const originalLength = newJson.modelIds.length;
+        newJson.modelIds = newJson.modelIds
+            .filter(id => id && typeof id === 'string' && id.trim())
+            .map(id => id.trim())
+            .filter((id, index, arr) => arr.indexOf(id) === index); // удаляем дубликаты
+        
+        if (newJson.modelIds.length !== originalLength) {
+            corrections.push(`Очищен массив modelIds: удалены пустые значения и дубликаты`);
+        }
+    } else if (newJson.modelIds && !Array.isArray(newJson.modelIds)) {
+        // Если поле существует, но не является массивом, преобразуем его
+        if (typeof newJson.modelIds === 'string') {
+            let value = newJson.modelIds;
+            if (value.includes('|')) {
+                newJson.modelIds = value.split('|').filter(v => v.trim()).map(v => v.trim());
+                corrections.push(`Поле modelIds преобразовано из строки в массив`);
+            } else {
+                newJson.modelIds = [value.trim()];
+                corrections.push(`Поле modelIds преобразовано из строки в массив`);
+            }
+        } else {
+            newJson.modelIds = [];
+            corrections.push(`Поле modelIds преобразовано в пустой массив`);
+        }
+    }
+
+    // Удаление неиспользуемых полей из корня шаблона
+    const unusedFields = ['status', 'date', 'overview', 'url', 'ali', 'ali2'];
+    let removedFields = [];
+    
+    unusedFields.forEach(field => {
+        if (newJson.hasOwnProperty(field)) {
+            delete newJson[field];
+            removedFields.push(field);
+        }
+    });
+    
+    if (removedFields.length > 0) {
+        corrections.push(`Удалены неиспользуемые поля: ${removedFields.join(', ')}`);
     }
 
     // --- Вспомогательная функция для обработки link ---
@@ -230,13 +366,18 @@ window.applyCorrections = function(jsonToCorrect, schema, allowedInputTypesFromS
     }
     const orderedJson = {};
     const remainingKeys = { ...newJson };
+    
+    // Сначала добавляем ключи в порядке схемы
     for (const key of keyOrder) {
         if (Object.prototype.hasOwnProperty.call(newJson, key)) {
             orderedJson[key] = newJson[key];
             delete remainingKeys[key];
         }
     }
+    
+    // Затем добавляем оставшиеся ключи
     Object.assign(orderedJson, remainingKeys);
+    
     return { finalJson: orderedJson, corrections };
 };
 
@@ -253,6 +394,14 @@ window.correctJson = function() {
         let json = JSON.parse(value);
         window.oneClickFixMode = false;
         window.selectTemplateWithDropdown(json, (selected) => {
+            // Очищаем состояние свёрнутости при выборе шаблона
+                            if (window.clearFormCollapsedState) {
+                    window.clearFormCollapsedState();
+                }
+                if (window.clearFormDatalists) {
+                    window.clearFormDatalists();
+                }
+            
             const templates = Array.isArray(json) ? json : (json && typeof json === 'object' && Object.keys(json).every(k => /^\d+$/.test(k))) ? Object.values(json) : [json];
             const selectedTemplate = (typeof selected === 'number') ? (templates[selected] ?? templates[0]) : (selected || templates[0]);
             const { finalJson, corrections } = window.applyCorrections(selectedTemplate, window.schema, window.allowedInputTypesFromSchema);
@@ -264,6 +413,13 @@ window.correctJson = function() {
             out.innerHTML = list;
             window.clearErrorHighlights();
             window.editor.refresh();
+            
+            // Обновляем форму, если она активна
+            try {
+                if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                    window.renderFormEditor();
+                }
+            } catch(_) {}
         });
     } catch (e) {
         document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка исправления: ${e.message}</li></ul>`;
@@ -347,6 +503,13 @@ window.oneClickFixRun = async function() {
         } else {
             document.getElementById('correctionOutput').innerHTML += '<ul><li>Исправления не требовались.</li></ul>';
         }
+        
+        // Обновляем форму, если она активна
+        try {
+            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                window.renderFormEditor();
+            }
+        } catch(_) {}
         await new Promise(r => setTimeout(r, 50));
         window.validateJson(true);
         let hasErrors = document.getElementById('errorOutput').innerHTML.trim() !== '';

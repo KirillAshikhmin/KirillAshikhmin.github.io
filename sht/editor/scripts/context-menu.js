@@ -211,6 +211,14 @@ function executeContextMenuAction(action) {
                         json.services.push(...services);
                         window.editor.setValue(JSON.stringify(json, null, 2));
                         window.editor.refresh();
+                        
+                        // Обновляем форму, если она активна
+                        try {
+                            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                window.renderFormEditor();
+                            }
+                        } catch(_) {}
+                        
                         window.showToast('Сервис добавлен через мастер', 'success');
                     } catch(e) { window.showToast('Ошибка добавления сервиса: '+e.message, 'error'); }
                 });
@@ -231,6 +239,14 @@ function executeContextMenuAction(action) {
                                 svc.characteristics.push(...chars.map(c=>({ type: c.type || '', link: [{}] })));
                                 window.editor.setValue(JSON.stringify(json, null, 2));
                                 window.editor.refresh();
+                                
+                                // Обновляем форму, если она активна
+                                try {
+                                    if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                        window.renderFormEditor();
+                                    }
+                                } catch(_) {}
+                                
                                 window.showToast('Характеристики добавлены через мастер', 'success');
                             });
                             return;
@@ -251,6 +267,14 @@ function executeContextMenuAction(action) {
                         json.options.push(opt);
                         window.editor.setValue(JSON.stringify(json, null, 2));
                         window.editor.refresh();
+                        
+                        // Обновляем форму, если она активна
+                        try {
+                            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                window.renderFormEditor();
+                            }
+                        } catch(_) {}
+                        
                         window.showToast('Опция добавлена через мастер', 'success');
                     } catch(e) { window.showToast('Ошибка добавления опции: '+e.message, 'error'); }
                 });
@@ -272,6 +296,14 @@ function executeContextMenuAction(action) {
                                 char.link.push(...links);
                                 window.editor.setValue(JSON.stringify(json, null, 2));
                                 window.editor.refresh();
+                                
+                                // Обновляем форму, если она активна
+                                try {
+                                    if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                        window.renderFormEditor();
+                                    }
+                                } catch(_) {}
+                                
                                 window.showToast('Линки добавлены через мастер', 'success');
                             });
                             return;

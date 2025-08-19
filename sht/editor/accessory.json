@@ -306,6 +306,10 @@
         ],
         "topicGet": [
           "type"
+        ],
+        "topicSet": [
+          "type",
+          "topicGet"
         ]
       },
       "additionalProperties": false,
@@ -1665,25 +1669,30 @@
       "type": "string",
       "description": "Model"
     },
-    "manufacturerId": {
-      "type": "string",
-      "description": "Manufacturer ID"
+    "manufacturerIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^|]*$"
+      },
+      "description": "Array of Manufacturer IDs"
     },
-    "modelId": {
-      "type": "string",
-      "description": "Model ID"
+    "modelIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^|]*$"
+      },
+      "description": "Array of Model IDs"
     },
     "catalogId": {
       "type": "integer",
-      "description": "Catalog ID"
+      "description": "Catalog ID",
+      "minimum": 0
     },
     "issue": {
       "type": "string",
       "description": "Issue"
-    },
-    "status": {
-      "type": "string",
-      "description": "Status"
     },
     "room": {
       "type": "string"
@@ -1720,23 +1729,8 @@
     "imageType": {
       "type": "integer"
     },
-    "date": {
-      "type": "string"
-    },
     "optional": {
       "$ref": "#/$defs/optional"
-    },
-    "overview": {
-      "type": "string"
-    },
-    "url": {
-      "type": "string"
-    },
-    "ali": {
-      "type": "string"
-    },
-    "ali2": {
-      "type": "string"
     },
     "TODO": {
       "type": "string"
@@ -1937,7 +1931,7 @@
           },
           "association": {
             "type": "string",
-            "pattern": "^[0-9]{1}$",
+            "pattern": "^[0-9]+(\\.[0-9]+)?$",
             "description": "for_zigbee"
           },
           "commands": {
@@ -4436,7 +4430,7 @@
   "dependencies": {
     "manufacturer": {
       "required": [
-        "modelId"
+        "modelIds"
       ]
     }
   },

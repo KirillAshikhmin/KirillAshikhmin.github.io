@@ -420,6 +420,13 @@ window.addEventListener('DOMContentLoaded', function () {
     if (savedJson !== null) {
         window.editor.setValue(savedJson);
         window.editor.refresh();
+        
+        // Автоматическая валидация восстановленного содержимого после загрузки схемы
+        document.addEventListener('schemaLoaded', function autoValidateOnSchemaLoad() {
+            window.autoValidateEditorContent();
+            // Удаляем обработчик после первого использования
+            document.removeEventListener('schemaLoaded', autoValidateOnSchemaLoad);
+        });
     }
 
     // Восстановление позиции курсора и скролла после перезагрузки
@@ -450,7 +457,7 @@ window.addEventListener('DOMContentLoaded', function () {
                                 window.lastCursorPath = window.getCurrentJsonPath(window.editor);
                             }
                         } catch(_) {}
-                        updateCursorPathMap();
+                        window.updateCursorPathMap();
                         if (typeof window.updateToolbarButtonsVisibility === 'function') {
                             window.updateToolbarButtonsVisibility();
                         }
@@ -567,6 +574,19 @@ window.addEventListener('DOMContentLoaded', function () {
     window.allowedInputTypesFromSchema = [];
     window.schemaHintsTree = null;
     window.autocompleteJustClosed = false;
+    
+    // Функция для автоматической валидации содержимого редактора
+    window.autoValidateEditorContent = function() {
+        if (window.editor && window.editor.getValue().trim()) {
+            try {
+                if (typeof window.validateJson === 'function') {
+                    window.validateJson(true);
+                }
+            } catch (e) {
+                console.log('Автоматическая валидация не выполнена:', e);
+            }
+        }
+    };
 
     // --- Сохранение позиции курсора ---
     window.lastCursorPosition = null;
@@ -680,6 +700,11 @@ window.addEventListener('DOMContentLoaded', function () {
                 }
                 // Сообщаем частям UI (мастер и др.), что схема загружена – можно перерисоваться
                 try { document.dispatchEvent(new CustomEvent('schemaLoaded')); } catch(e) {}
+                
+                // Автоматическая валидация при загрузке страницы, если в редакторе есть содержимое
+                setTimeout(() => {
+                    window.autoValidateEditorContent();
+                }, 100);
             })
             .catch(error => {
                 console.error('Ошибка загрузки схемы:', error);
@@ -746,6 +771,13 @@ window.addEventListener('DOMContentLoaded', function () {
                 return `<div class='modal-select-item-title'>${item.name || ''}</div><div class='modal-select-item-sub'>${item.manufacturer || 'без производителя'} / ${item.model || 'без модели'}</div>`;
             },
             onSelect: (item, idx) => {
+                // Очищаем состояние свёрнутости при выборе шаблона
+                if (window.clearFormCollapsedState) {
+                    window.clearFormCollapsedState();
+                }
+                if (window.clearFormDatalists) {
+                    window.clearFormDatalists();
+                }
                 callback(item);
                 if (window.oneClickFixMode) {
                     window.oneClickFixMode = false;
@@ -787,8 +819,23 @@ window.addEventListener('DOMContentLoaded', function () {
                     document.getElementById('correctionOutput').textContent = '';
                     document.getElementById('autoFixContainer').innerHTML = '';
                     window.selectTemplateWithDropdown(parsed, (selectedTemplate) => {
+                        // Очищаем состояние свёрнутости при загрузке нового шаблона
+                        if (window.clearFormCollapsedState) {
+                            window.clearFormCollapsedState();
+                        }
+                        if (window.clearFormDatalists) {
+                            window.clearFormDatalists();
+                        }
+                        
                         window.editor.setValue(JSON.stringify(selectedTemplate, null, 2));
                         window.editor.refresh();
+                        
+                        // Обновляем форму, если она активна
+                        try {
+                            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                window.renderFormEditor();
+                            }
+                        } catch(_) {}
                     });
                 } catch (err) {
                     document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка чтения файла: ${err.message}</li></ul>`;
@@ -815,6 +862,62 @@ window.addEventListener('DOMContentLoaded', function () {
 
     // --- Инициализация панели инструментов ---
     window.initEditorToolbar();
+
+    // --- Переключение вида Код/Форма ---
+    (function initViewToggle(){
+        const codeRadio = document.getElementById('viewCode');
+        const formRadio = document.getElementById('viewForm');
+        const codeEl = document.getElementById('jsonEditor');
+        const formEl = document.getElementById('formEditor');
+        function showCode(){ 
+            codeEl.style.display='block'; 
+            formEl.style.display='none'; 
+            try{ localStorage.setItem('editorView','code'); }catch(_){}
+            // Показываем cursor path map только в режиме кода
+            const cursorPathMap = document.querySelector('.cursor-path');
+            if (cursorPathMap) {
+                cursorPathMap.style.display = 'block';
+            }
+            // Убираем отступ у editor-container в режиме кода
+            const editorContainer = document.querySelector('.editor-container');
+            if (editorContainer) {
+                editorContainer.style.marginBottom = '0';
+            }
+            // Обновляем видимость тулбара
+            if (window.updateToolbarVisibility) {
+                window.updateToolbarVisibility();
+            }
+        }
+        function showForm(){ 
+            codeEl.style.display='none'; 
+            formEl.style.display='block'; 
+            try { if (window.renderFormEditor) window.renderFormEditor(); localStorage.setItem('editorView','form'); } catch(_){}
+            // Показываем cursor path map и в режиме формы
+            const cursorPathMap = document.querySelector('.cursor-path');
+            if (cursorPathMap) {
+                cursorPathMap.style.display = 'block';
+            }
+            // Убираем отступ у editor-container в режиме формы
+            const editorContainer = document.querySelector('.editor-container');
+            if (editorContainer) {
+                editorContainer.style.marginBottom = '0';
+            }
+            // Обновляем видимость тулбара
+            if (window.updateToolbarVisibility) {
+                window.updateToolbarVisibility();
+            }
+        }
+        if (codeRadio && formRadio){
+            codeRadio.addEventListener('change', ()=>{ if (codeRadio.checked) showCode(); });
+            formRadio.addEventListener('change', ()=>{ if (formRadio.checked) showForm(); });
+            // восстановление выбранного вида
+            try {
+                const saved = localStorage.getItem('editorView');
+                if (saved === 'form') { formRadio.checked = true; showForm(); }
+                else { codeRadio.checked = true; showCode(); }
+            } catch(_) { showCode(); }
+        }
+    })();
 
     // --- Мобильный long-press для контекстного меню ---
     (function enableLongPressContextMenu(){
@@ -860,7 +963,7 @@ window.addEventListener('DOMContentLoaded', function () {
     })();
 
     // --- Сохранение позиции курсора при изменениях + кликабельные крошки пути ---
-    function updateCursorPathMap() {
+    window.updateCursorPathMap = function() {
         const mapDiv = document.getElementById('cursorPathMap');
         if (!mapDiv) return;
         let value = window.editor.getValue();
@@ -1086,7 +1189,7 @@ window.addEventListener('DOMContentLoaded', function () {
             } catch(_) {}
             setTimeout(() => {
                 window.__suppressCursorPathUpdate = false;
-                updateCursorPathMap();
+                window.updateCursorPathMap();
                 if (typeof window.updateToolbarButtonsVisibility === 'function') window.updateToolbarButtonsVisibility();
             }, 0);
         }));
@@ -1127,7 +1230,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 } finally {
                     setTimeout(() => {
                         window.__suppressCursorPathUpdate = false;
-                        updateCursorPathMap();
+                        window.updateCursorPathMap();
                         if (typeof window.updateToolbarButtonsVisibility === 'function') window.updateToolbarButtonsVisibility();
                     }, 0);
                 }
@@ -1138,29 +1241,29 @@ window.addEventListener('DOMContentLoaded', function () {
 
     window.__suppressCursorPathUpdate = window.__suppressCursorPathUpdate || false;
 
-    window.editor.on('cursorActivity', function () {
-        if (window.__suppressCursorPathUpdate) return;
-        window.lastCursorPosition = window.editor.getCursor();
-        window.lastCursorPath = window.getCurrentJsonPath(window.editor);
-        updateCursorPathMap();
-        persistCursorAndScroll();
-        // Обновляем видимость кнопок тулбара
-        if (typeof window.updateToolbarButtonsVisibility === 'function') {
-            window.updateToolbarButtonsVisibility();
-        }
-    });
+            window.editor.on('cursorActivity', function () {
+            if (window.__suppressCursorPathUpdate) return;
+            window.lastCursorPosition = window.editor.getCursor();
+            window.lastCursorPath = window.getCurrentJsonPath(window.editor);
+            window.updateCursorPathMap();
+            persistCursorAndScroll();
+            // Обновляем видимость кнопок тулбара
+            if (typeof window.updateToolbarButtonsVisibility === 'function') {
+                window.updateToolbarButtonsVisibility();
+            }
+        });
 
-    window.editor.on('focus', function () {
-        if (window.__suppressCursorPathUpdate) return;
-        window.lastCursorPosition = window.editor.getCursor();
-        window.lastCursorPath = window.getCurrentJsonPath(window.editor);
-        updateCursorPathMap();
-        persistCursorAndScroll();
-        // Обновляем видимость кнопок тулбара
-        if (typeof window.updateToolbarButtonsVisibility === 'function') {
-            window.updateToolbarButtonsVisibility();
-        }
-    });
+            window.editor.on('focus', function () {
+            if (window.__suppressCursorPathUpdate) return;
+            window.lastCursorPosition = window.editor.getCursor();
+            window.lastCursorPath = window.getCurrentJsonPath(window.editor);
+            window.updateCursorPathMap();
+            persistCursorAndScroll();
+            // Обновляем видимость кнопок тулбара
+            if (typeof window.updateToolbarButtonsVisibility === 'function') {
+                window.updateToolbarButtonsVisibility();
+            }
+        });
 
     // --- Форматирование JSON ---
     window.formatFromOneClick = false;
@@ -1182,6 +1285,20 @@ window.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('correctionOutput').innerHTML = `<ul><li>Форматирование успешно выполнено</li></ul>`;
             }
             window.editor.refresh();
+            
+            // Автоматическая валидация после форматирования
+            setTimeout(() => {
+                if (typeof window.autoValidateEditorContent === 'function') {
+                    window.autoValidateEditorContent();
+                }
+            }, 100);
+            
+            // Обновляем форму, если она активна
+            try {
+                if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                    window.renderFormEditor();
+                }
+            } catch(_) {}
         } catch (e) {
             document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка форматирования: ${e.message}</li></ul>`;
         }
@@ -1318,7 +1435,7 @@ window.addEventListener('DOMContentLoaded', function () {
             step: 0,
             controller: '',
             inProgress: false,
-            template: { manufacturer: '', model: '', manufacturerId: '', modelId: '', catalogId: 0, services: [], options: [] },
+            template: { manufacturer: '', model: '', manufacturerIds: [], modelIds: [], catalogId: 0, services: [], options: [] },
             selectedServices: [],
             serviceIdx: 0
         };
@@ -1327,54 +1444,9 @@ window.addEventListener('DOMContentLoaded', function () {
         // когда мастер открыт в режиме добавления характеристик
         let existingCharTypes = null; // Set<string> | null
         // Подсказки для полей мастера
-        const FIELD_TIPS = {
-            // Верхний уровень шаблона
-            'template.manufacturer': 'Производитель устройства. Будет отображаться в карточке устройства.',
-            'template.model': 'Модель устройства.  Будет отображаться в карточке устройства.',
-            'template.manufacturerId': 'Идентификатор производителя.',
-            // Сервис
-            'service.name': 'Отображаемое имя сервиса в Sprut.Hub.',
-            'service.type': 'Тип сервиса. Можно посмотреть список нажав кнопку Типы сервисов.',
-            'service.visible': 'Показывать сервис в интерфейсе Sprut.Hub.',
-            'service.logics': 'Дополнительные логики (поведения) сервиса. Отметьте нужные.',
-            // Идентификаторы
-            'template.modelId.base': 'Идентификатор модели устройства.',
-            'template.modelId.mqtt': 'MQTT: путь топика с регулярным выражением.',
-            'template.catalogId': 'Идентификатор устройства в каталоге sprut.ai.',
-            // Характеристика
-            'char.minValue': 'Минимально допустимое значение характеристики.',
-            'char.maxValue': 'Максимально допустимое значение характеристики.',
-            'char.minStep': 'Шаг изменения значения.',
-            'char.unit': 'Единица измерения (например "°C", "%", "V").',
-            'char.read': 'Разрешено чтение значения характеристики из контроллера.',
-            'char.write': 'Разрешена запись/управление значением характеристики.',
-            'char.validValues': 'Список допустимых значений.',
-            // Link общие поля
-            'link.type': 'Тип входящих данных.',
-            'link.inFunc': 'Функция преобразования входящих данных (JS-выражение).',
-            'link.outFunc': 'Функция преобразования исходящих данных (JS-выражение).',
-            'link.map': 'Сопоставление входящих значений → внутренним.',
-            'link.outMap': 'Сопоставление исходящих значений → внешним.',
-            'link.scale': 'Масштабирование значения. Например, 0.1 или 10.',
-            'link.section': 'Привязка к данным контроллера: где читать и куда писать значение.',
-            // Контроллер-специфичные поля
-            'link.address': 'Адрес (регистра/устройства) для ModBus.',
-            'link.function': 'Код функции (ModBus function).',
-            'link.topicGet': 'MQTT топик для чтения значения (поддерживает группы из modelId).',
-            'link.topicSet': 'MQTT топик для записи значения (поддерживает группы из modelId).',
-            'link.endpoint': 'ZigBee endpoint устройства.',
-            'link.cluster': 'ZigBee cluster (идентификатор кластера).',
-            'link.attribute': 'ZigBee attribute (идентификатор атрибута).',
-            'link.class': 'Z-Wave Command Class.',
-            'link.value': 'Z-Wave Value ID.',
-            'link.id': 'Идентификатор для контроллера (например Xiaomi).',
-            'link.getProp': 'Имя свойства/команды получения значения (Xiaomi).',
-            'link.setProp': 'Имя свойства/команды установки значения (Xiaomi).',
-            // Опции
-            'option.name': 'Название опции, отображаемое в параметрах устройства.',
-            'option.inputType': 'Тип элемента управления в параметрах устройства (select, switch, number и т.п.).',
-            'options.note': 'Опции отображаются в Параметрах устройства.'
-        };
+        const FIELD_TIPS = (typeof window !== 'undefined' && (window.FIELD_TIPS || window.__FIELD_TIPS__)) || {};
+        try { window.__FIELD_TIPS__ = FIELD_TIPS; window.FIELD_TIPS = FIELD_TIPS; } catch(_) {}
+
         function escapeTipText(s) {
             return String(s)
                 .replace(/&/g, '&amp;')
@@ -1398,6 +1470,13 @@ window.addEventListener('DOMContentLoaded', function () {
             try { if (typeof externalCallback === 'function') externalCallback(payload); } catch {}
             try { localStorage.removeItem(LS_KEY); } catch {}
             externalMode = null; externalCallback = null; resetState(); close();
+            
+            // Обновляем форму, если она активна
+            try {
+                if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                    window.renderFormEditor();
+                }
+            } catch(_) {}
         }
 
         function saveState() {
@@ -1474,6 +1553,63 @@ window.addEventListener('DOMContentLoaded', function () {
             } catch (e) {}
         });
 
+        // Функция для создания интерфейса массивов строк (как в форме)
+        function renderStringArrayInterface(container, fieldId, values) {
+            container.innerHTML = '';
+            
+            // Добавляем существующие значения
+            if (Array.isArray(values) && values.length > 0) {
+                values.forEach((value, index) => {
+                    addStringArrayItem(container, fieldId, value, index);
+                });
+            } else {
+                // Если нет значений, создаем первый пустой элемент
+                addStringArrayItem(container, fieldId, '', 0);
+            }
+            
+            // Добавляем кнопку "Добавить элемент"
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'array-add-btn';
+            addBtn.textContent = 'Добавить элемент';
+            addBtn.addEventListener('click', () => {
+                const currentItems = container.querySelectorAll('.array-item-row');
+                addStringArrayItem(container, fieldId, '', currentItems.length);
+            });
+            container.appendChild(addBtn);
+        }
+        
+        function addStringArrayItem(container, fieldId, value, index) {
+            const itemRow = document.createElement('div');
+            itemRow.className = 'array-item-row';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'array-item-input';
+            input.value = value;
+            input.placeholder = 'Введите значение';
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'array-item-remove-btn';
+            removeBtn.textContent = '×';
+            removeBtn.addEventListener('click', () => {
+                itemRow.remove();
+            });
+            
+            itemRow.appendChild(input);
+            itemRow.appendChild(removeBtn);
+            
+            // Вставляем перед кнопкой "Добавить элемент"
+            const addBtn = container.querySelector('.array-add-btn');
+            if (addBtn) {
+                container.insertBefore(itemRow, addBtn);
+            } else {
+                container.appendChild(itemRow);
+            }
+        }
+
+
         // Публичные функции для запуска отдельных сценариев визарда
         window.startWizardAddService = function(onDone) {
             loadState();
@@ -1523,16 +1659,109 @@ window.addEventListener('DOMContentLoaded', function () {
             const isMQTT = (state.controller||'')==='MQTT';
             const manuRow = `<div class='form-row'><label>Производитель${tipByKey('template.manufacturer')}</label><input id='w_manu' type='text' value='${state.template.manufacturer || ''}' /></div>`;
             const modelRow = `<div class='form-row'><label>Модель${tipByKey('template.model')}</label><input id='w_model' type='text' value='${state.template.model || ''}' /></div>`;
-            const manuIdRow = isMQTT ? '' : `<div class='form-row'><label>manufacturerId${tipByKey('template.manufacturerId')}</label><input id='w_manuId' type='text' value='${state.template.manufacturerId || ''}' /></div>`;
-            const modelIdTip = isMQTT ? tipByKey('template.modelId.mqtt') : tipByKey('template.modelId.base');
-            const modelIdRow = `<div class='form-row'><label>modelId${modelIdTip}</label><input id='w_modelId' type='text' value='${state.template.modelId || ''}' /></div>`;
+            
+            // Миграция старых полей в новые массивы
+            if (state.template.topicSearch && !state.template.modelIds) {
+                let value = state.template.topicSearch;
+                if (typeof value === 'string' && value.trim()) {
+                    if (!state.template.modelIds) {
+                        state.template.modelIds = [];
+                    }
+                    if (!state.template.modelIds.includes(value.trim())) {
+                        state.template.modelIds.push(value.trim());
+                    }
+                }
+                delete state.template.topicSearch;
+            }
+            
+            if (state.template.manufacturerId && !state.template.manufacturerIds) {
+                if (typeof state.template.manufacturerId === 'string') {
+                    let value = state.template.manufacturerId;
+                    if (value.startsWith('(') && value.endsWith(')')) {
+                        value = value.slice(1, -1);
+                    }
+                    if (value.includes('|')) {
+                        state.template.manufacturerIds = value.split('|').filter(v => v.trim()).map(v => v.trim());
+                    } else {
+                        state.template.manufacturerIds = [value.trim()];
+                    }
+                    delete state.template.manufacturerId;
+                }
+            }
+            
+            if (state.template.modelId && !state.template.modelIds) {
+                if (typeof state.template.modelId === 'string') {
+                    let value = state.template.modelId;
+                    if (value.startsWith('(') && value.endsWith(')')) {
+                        value = value.slice(1, -1);
+                    }
+                    if (value.includes('|')) {
+                        state.template.modelIds = value.split('|').filter(v => v.trim()).map(v => v.trim());
+                    } else {
+                        state.template.modelIds = [value.trim()];
+                    }
+                    delete state.template.modelId;
+                }
+            }
+            
+            // Удаляем неиспользуемые поля
+            const unusedFields = ['status', 'date', 'overview', 'url', 'ali', 'ali2'];
+            unusedFields.forEach(field => {
+                if (state.template.hasOwnProperty(field)) {
+                    delete state.template[field];
+                }
+            });
+            
+            // Для manufacturerIds создаем интерфейс как в форме
+            const manuIdsRow = isMQTT ? '' : `<div class='form-row'><label>manufacturerIds${tipByKey('template.manufacturerIds')}</label><div id='w_manuIds_container' class='string-array-container'></div></div>`;
+            
+            // Для modelIds создаем интерфейс как в форме
+            const modelIdsTip = isMQTT ? tipByKey('template.modelIds.mqtt') : tipByKey('template.modelIds.base');
+            const modelIdsRow = `<div class='form-row'><label>modelIds${modelIdsTip}</label><div id='w_modelIds_container' class='string-array-container'></div></div>`;
+            
             const catalogIdRow = `<div class='form-row'><label>catalogId${tipByKey('template.catalogId')}</label><input id='w_catalogId' type='number' value='${state.template.catalogId || 0}' /></div>`;
-            bodyEl.innerHTML = manuRow + modelRow + manuIdRow + modelIdRow + catalogIdRow;
+            bodyEl.innerHTML = manuRow + modelRow + manuIdsRow + modelIdsRow + catalogIdRow;
+            
+            // Инициализируем интерфейс для manufacturerIds
+            if (!isMQTT) {
+                const manuIdsContainer = document.getElementById('w_manuIds_container');
+                if (manuIdsContainer) {
+                    renderStringArrayInterface(manuIdsContainer, 'w_manuIds', state.template.manufacturerIds || []);
+                }
+            }
+            
+            // Инициализируем интерфейс для modelIds
+            const modelIdsContainer = document.getElementById('w_modelIds_container');
+            if (modelIdsContainer) {
+                renderStringArrayInterface(modelIdsContainer, 'w_modelIds', state.template.modelIds || []);
+            }
+            
             nextBtn.onclick = () => {
                 state.template.manufacturer = document.getElementById('w_manu').value.trim();
                 state.template.model = document.getElementById('w_model').value.trim();
-                if (!isMQTT) state.template.manufacturerId = document.getElementById('w_manuId').value.trim(); else delete state.template.manufacturerId;
-                state.template.modelId = document.getElementById('w_modelId').value.trim();
+                
+                // Получаем manufacturerIds
+                if (!isMQTT) {
+                    const manuIdsInputs = document.querySelectorAll('#w_manuIds_container input[type="text"]');
+                    const manuIds = Array.from(manuIdsInputs).map(input => input.value.trim()).filter(v => v);
+                    if (manuIds.length > 0) {
+                        state.template.manufacturerIds = manuIds;
+                    } else {
+                        delete state.template.manufacturerIds;
+                    }
+                } else {
+                    delete state.template.manufacturerIds;
+                }
+                
+                // Получаем modelIds
+                const modelIdsInputs = document.querySelectorAll('#w_modelIds_container input[type="text"]');
+                const modelIds = Array.from(modelIdsInputs).map(input => input.value.trim()).filter(v => v);
+                if (modelIds.length > 0) {
+                    state.template.modelIds = modelIds;
+                } else {
+                    delete state.template.modelIds;
+                }
+                
                 state.template.catalogId = parseInt(document.getElementById('w_catalogId').value, 10) || 0;
                 state.step = 1; saveState(); scrollWizardTop(); render();
             };
@@ -1601,7 +1830,14 @@ window.addEventListener('DOMContentLoaded', function () {
             bodyEl.innerHTML = `
                 <div class='form-row'><label>Название (name)${tipByKey('service.name')}</label><input id='w_svc_name' type='text' value='${svc.name || svcNameRu}'/></div>
                 <div class='form-row is-disabled'><label>Тип (type)${tipByKey('service.type')}</label><input id='w_svc_type' type='text' value='${svc.type || ''}' disabled/></div>
-                <div class='form-row'><label>Видимый (visible)${tipByKey('service.visible')}</label><input id='w_svc_visible' type='checkbox' ${svc.visible !== false ? 'checked' : ''}/></div>
+                <div class='form-row'><label>Видимый (visible)${tipByKey('service.visible')}</label>
+                    <div style='display: flex; align-items: center;'>
+                        <label class='switch' style='width: 50px; flex-shrink: 0;'>
+                            <input id='w_svc_visible' type='checkbox' ${svc.visible !== false ? 'checked' : ''}/>
+                            <span class='slider'></span>
+                        </label>
+                    </div>
+                </div>
                 ${logicHtml}
             `;
             // переключение разворота логики
@@ -1813,21 +2049,24 @@ window.addEventListener('DOMContentLoaded', function () {
                              <button class='remove-btn' data-char='${idx}' data-link='${li}' data-remove-${group}='${pi}'>−</button></div>`
                         ).join('');
                         const addLabel = entries.length ? 'Добавить поле' : `Добавить ${group}`;
-                        const add = `<div class='kv-row'><button class='toolbar-btn' data-char='${idx}' data-link='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
+                        const add = `<div class='kv-row'><button class='array-add-btn' data-char='${idx}' data-link='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
                         return `<div class='section-title'>${group}${tipByKey(`link.${group}`)}</div>${list}${add}`;
                     };
                     rows += renderPairs(mapPairs, 'map');
                     rows += renderPairs(outMapPairs, 'outMap');
                     const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type${tipByKey('link.type')}</label>
-                        <select data-char='${idx}' data-link='${li}' data-field='type'>
-                            <option value=''></option>
-                            ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
-                        </select>
+                        <div class='combobox' id='type_combobox_${idx}_${li}'>
+                            <input type='text' data-char='${idx}' data-link='${li}' data-field='type' value='${lnk.type || ''}' placeholder='Выберите тип' readonly />
+                            <div class='dropdown'>
+                                <div class='dropdown-item' data-value=''>Не выбрано</div>
+                                ${linkTypeEnum.map(t=>`<div class='dropdown-item' data-value='${t}'>${t}</div>`).join('')}
+                            </div>
+                        </div>
                         <button class='remove-btn remove-link-btn' data-char='${idx}' data-remove-link='${li}'>✕</button>
                     </div>`;
                     return `<div class='service-block link-block'><div class='link-title'>Линк ${li+1}</div>${typeSel}${rows}</div>`;
                 }).join('');
-                const addLinkBtn = `<div style='margin:8px 0;'><button class='toolbar-btn' data-add-link='${idx}'>Добавить линк</button></div>`;
+                const addLinkBtn = `<div style='margin:8px 0;'><button class='array-add-btn' data-add-link='${idx}'>Добавить линк</button></div>`;
                 // параметры характеристики (скрываем числовые/единицы для Boolean и String)
                 const isBoolean = charDef && charDef.format === 'Boolean';
                 const isString = charDef && charDef.format === 'String';
@@ -1835,8 +2074,22 @@ window.addEventListener('DOMContentLoaded', function () {
                 const maxRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>maxValue${tipByKey('char.maxValue')}</label><input type='number' data-charp='${idx}' data-prop='maxValue' data-default='${charDef?.maxValue ?? ''}' value='${c.maxValue ?? ''}' /></div>`;
                 const stepRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>minStep${tipByKey('char.minStep')}</label><input type='number' data-charp='${idx}' data-prop='minStep' data-default='${charDef?.minStep ?? ''}' value='${c.minStep ?? ''}' /></div>`;
                 const unitRow = (isBoolean || isString) ? '' : `<div class='kv-row'><label style='min-width:160px;'>unit${tipByKey('char.unit')}</label><input type='text' data-charp='${idx}' data-prop='unit' data-default='${charDef?.unit ?? ''}' value='${c.unit || ''}' /></div>`;
-                const rRow = `<div class='kv-row'><label style='min-width:160px;'>read${tipByKey('char.read')}</label><input type='checkbox' data-charp='${idx}' data-prop='read' data-default='${!!charDef?.read}' ${ (typeof c.read === 'undefined' ? (!!charDef?.read ? 'checked' : '') : (c.read ? 'checked' : '')) } /></div>`;
-                const wRow = `<div class='kv-row'><label style='min-width:160px;'>write${tipByKey('char.write')}</label><input type='checkbox' data-charp='${idx}' data-prop='write' data-default='${!!charDef?.write}' ${ (typeof c.write === 'undefined' ? (!!charDef?.write ? 'checked' : '') : (c.write ? 'checked' : '')) } /></div>`;
+                const rRow = `<div class='kv-row'><label style='min-width:160px;'>read${tipByKey('char.read')}</label>
+                    <div style='display: flex; align-items: center;'>
+                        <label class='switch' style='width: 50px; flex-shrink: 0;'>
+                            <input type='checkbox' data-charp='${idx}' data-prop='read' data-default='${!!charDef?.read}' ${ (typeof c.read === 'undefined' ? (!!charDef?.read ? 'checked' : '') : (c.read ? 'checked' : '')) } />
+                            <span class='slider'></span>
+                        </label>
+                    </div>
+                </div>`;
+                const wRow = `<div class='kv-row'><label style='min-width:160px;'>write${tipByKey('char.write')}</label>
+                    <div style='display: flex; align-items: center;'>
+                        <label class='switch' style='width: 50px; flex-shrink: 0;'>
+                            <input type='checkbox' data-charp='${idx}' data-prop='write' data-default='${!!charDef?.write}' ${ (typeof c.write === 'undefined' ? (!!charDef?.write ? 'checked' : '') : (c.write ? 'checked' : '')) } />
+                            <span class='slider'></span>
+                        </label>
+                    </div>
+                </div>`;
                 // validValues — показываем из enum или validValues
                 let vvHtml = '';
                 if (validKeys.length) {
@@ -1853,6 +2106,47 @@ window.addEventListener('DOMContentLoaded', function () {
                 return `<div class='char-block'>${header}${minRow}${maxRow}${stepRow}${unitRow}${rRow}${wRow}${vvHtml}<div class='section-title'>Link${tipByKey('link.section')}</div>${linksBlocks}${addLinkBtn}</div>`;
             }).join('');
             bodyEl.innerHTML = charHtml || '<div>Нет выбранных характеристик</div>';
+            
+            // Обработчики для combobox
+            bodyEl.querySelectorAll('.combobox').forEach(combobox => {
+                const input = combobox.querySelector('input');
+                const dropdown = combobox.querySelector('.dropdown');
+                
+                input.addEventListener('click', () => {
+                    dropdown.classList.toggle('show');
+                });
+                
+                dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const value = item.getAttribute('data-value');
+                        input.value = value === '' ? '' : item.textContent;
+                        dropdown.classList.remove('show');
+                        
+                        // Обновляем значение в данных
+                        const charIdx = parseInt(input.getAttribute('data-char'), 10);
+                        const linkIdx = parseInt(input.getAttribute('data-link'), 10);
+                        const field = input.getAttribute('data-field');
+                        
+                        if (!isNaN(charIdx) && !isNaN(linkIdx) && field) {
+                            const svc = state.template.services[state.serviceIdx];
+                            if (svc.characteristics && svc.characteristics[charIdx] && svc.characteristics[charIdx].link) {
+                                svc.characteristics[charIdx].link[linkIdx][field] = value;
+                                saveState();
+                            }
+                        }
+                    });
+                });
+            });
+            
+            // Закрываем все dropdown при клике вне их
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.combobox')) {
+                    bodyEl.querySelectorAll('.combobox .dropdown').forEach(dropdown => {
+                        dropdown.classList.remove('show');
+                    });
+                }
+            });
+            
             // Обработчики
             bodyEl.querySelectorAll('input[data-char], select[data-char]').forEach(inp => {
                 inp.addEventListener('input', () => {
@@ -2199,7 +2493,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 </div>
                 <div class='section-title'>Link${tipByKey('link.section')}</div>
                 <div id='w_opt_links'></div>
-                <div style='margin:8px 0;'><button class='toolbar-btn' id='w_opt_add_link'>Добавить линк</button></div>
+                <div style='margin:8px 0;'><button class='array-add-btn' id='w_opt_add_link'>Добавить линк</button></div>
             `;
             function renderLinkBlocks() {
                 const controller = document.getElementById('controllerSelect')?.value || state.controller;
@@ -2234,16 +2528,19 @@ window.addEventListener('DOMContentLoaded', function () {
                              <button class='remove-btn' data-optlink='${li}' data-remove-${group}='${pi}'>−</button></div>`
                         ).join('');
                         const addLabel = entries.length ? 'Добавить поле' : `Добавить ${group}`;
-                        const add = `<div class='kv-row'><button class='toolbar-btn' data-optlink='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
+                        const add = `<div class='kv-row'><button class='array-add-btn' data-optlink='${li}' data-add-${group}='1'>${addLabel}</button></div>`;
                         return `<div class='section-title'>${group}${tipByKey(`link.${group}`)}</div>${list}${add}`;
                     };
                     rows += renderPairs(lnk.map, 'map');
                     rows += renderPairs(lnk.outMap, 'outMap');
                     const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type${tipByKey('link.type')}</label>
-                        <select data-optlink='${li}' data-field='type'>
-                            <option value=''></option>
-                            ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
-                        </select>
+                        <div class='combobox' id='opt_type_combobox_${li}'>
+                            <input type='text' data-optlink='${li}' data-field='type' value='${lnk.type || ''}' placeholder='Выберите тип' readonly />
+                            <div class='dropdown'>
+                                <div class='dropdown-item' data-value=''>Не выбрано</div>
+                                ${linkTypeEnum.map(t=>`<div class='dropdown-item' data-value='${t}'>${t}</div>`).join('')}
+                            </div>
+                        </div>
                         <button class='remove-btn remove-link-btn' data-remove-link='${li}'>✕</button>
                     </div>`;
                     return `<div class='service-block link-block'><div class='link-title'>Линк ${li+1}</div>${typeSel}${rows}</div>`;
@@ -2329,6 +2626,44 @@ window.addEventListener('DOMContentLoaded', function () {
                 });
             }
             renderLinkBlocks();
+            
+            // Обработчики для combobox в опциях
+            bodyEl.querySelectorAll('.combobox').forEach(combobox => {
+                const input = combobox.querySelector('input');
+                const dropdown = combobox.querySelector('.dropdown');
+                
+                input.addEventListener('click', () => {
+                    dropdown.classList.toggle('show');
+                });
+                
+                dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const value = item.getAttribute('data-value');
+                        input.value = value === '' ? '' : item.textContent;
+                        dropdown.classList.remove('show');
+                        
+                        // Обновляем значение в данных
+                        const linkIdx = parseInt(input.getAttribute('data-optlink'), 10);
+                        const field = input.getAttribute('data-field');
+                        
+                        if (!isNaN(linkIdx) && field) {
+                            if (!Array.isArray(opt.link)) opt.link = [];
+                            if (!opt.link[linkIdx]) opt.link[linkIdx] = {};
+                            opt.link[linkIdx][field] = value;
+                        }
+                    });
+                });
+            });
+            
+            // Закрываем все dropdown при клике вне их
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.combobox')) {
+                    bodyEl.querySelectorAll('.combobox .dropdown').forEach(dropdown => {
+                        dropdown.classList.remove('show');
+                    });
+                }
+            });
+            
             document.getElementById('w_opt_add_link').onclick = ()=>{ if(!Array.isArray(opt.link)) opt.link=[]; const init={type:''}; opt.link.push(init); renderLinkBlocks(); };
             nextBtn.style.display = 'none';
             doneBtn.style.display = '';
@@ -2372,16 +2707,19 @@ window.addEventListener('DOMContentLoaded', function () {
                 if (typeof lnk.type === 'undefined') lnk.type = '';
                 Array.from(fields).forEach(f => { if (typeof lnk[f] === 'undefined') lnk[f] = ''; });
                 const typeSel = `<div class='kv-row'><label style='min-width:160px;'>type</label>
-                    <select data-optlink='${li}' data-field='type'>
-                        <option value=''></option>
-                        ${linkTypeEnum.map(t=>`<option value='${t}' ${lnk.type===t?'selected':''}>${t}</option>`).join('')}
-                    </select>
+                    <div class='combobox' id='opt_params_type_combobox_${li}'>
+                        <input type='text' data-optlink='${li}' data-field='type' value='${lnk.type || ''}' placeholder='Выберите тип' readonly />
+                        <div class='dropdown'>
+                            <div class='dropdown-item' data-value=''>Не выбрано</div>
+                            ${linkTypeEnum.map(t=>`<div class='dropdown-item' data-value='${t}'>${t}</div>`).join('')}
+                        </div>
+                    </div>
                     <button class='remove-btn' data-remove-link='${li}'>Удалить линк</button>
                 </div>`;
                 const rows = Array.from(fields).map(f => `<div class='kv-row'><label style='min-width:160px;'>${f}</label><input type='text' data-optlink='${li}' data-field='${f}' value='${lnk[f]||''}' /><button class='remove-btn' data-remove-field='${f}' data-optlink='${li}'>−</button></div>`).join('');
                 return `<div class='service-block'>${typeSel}${rows}</div>`;
             }).join('');
-            const addLinkBtn = `<div style='margin:8px 0;'><button class='toolbar-btn' id='w_opt_add_link'>Добавить линк</button></div>`;
+            const addLinkBtn = `<div style='margin:8px 0;'><button class='array-add-btn' id='w_opt_add_link'>Добавить линк</button></div>`;
             const body = `
                 <div style='font-size:13px; opacity:.85; margin: -4px 0 8px 0;'>${escapeTipText(FIELD_TIPS['options.note'])}</div>
                 <div class='form-row'><label>Имя (name)${tipByKey('option.name')}</label><input id='w_opt_name2' type='text' value='${opt.name||''}'/></div>
@@ -2391,6 +2729,44 @@ window.addEventListener('DOMContentLoaded', function () {
                 ${addLinkBtn}
             `;
             bodyEl.innerHTML = body;
+            
+            // Обработчики для combobox в параметрах опций
+            bodyEl.querySelectorAll('.combobox').forEach(combobox => {
+                const input = combobox.querySelector('input');
+                const dropdown = combobox.querySelector('.dropdown');
+                
+                input.addEventListener('click', () => {
+                    dropdown.classList.toggle('show');
+                });
+                
+                dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const value = item.getAttribute('data-value');
+                        input.value = value === '' ? '' : item.textContent;
+                        dropdown.classList.remove('show');
+                        
+                        // Обновляем значение в данных
+                        const linkIdx = parseInt(input.getAttribute('data-optlink'), 10);
+                        const field = input.getAttribute('data-field');
+                        
+                        if (!isNaN(linkIdx) && field) {
+                            if (!Array.isArray(opt.link)) opt.link = [];
+                            if (!opt.link[linkIdx]) opt.link[linkIdx] = {};
+                            opt.link[linkIdx][field] = value;
+                        }
+                    });
+                });
+            });
+            
+            // Закрываем все dropdown при клике вне их
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.combobox')) {
+                    bodyEl.querySelectorAll('.combobox .dropdown').forEach(dropdown => {
+                        dropdown.classList.remove('show');
+                    });
+                }
+            });
+            
             bodyEl.querySelectorAll('input[data-field], select[data-field]').forEach(inp => {
                 inp.addEventListener('input', () => {
                     const li = parseInt(inp.getAttribute('data-optlink'),10) || 0;

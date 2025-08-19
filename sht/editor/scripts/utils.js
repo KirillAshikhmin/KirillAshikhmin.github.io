@@ -101,7 +101,17 @@ window.downloadTemplate = function() {
         }
         const manufacturer = (json.manufacturer || 'unknown').replace(/\s+/g, '_');
         const model = (json.model || 'unknown').replace(/\s+/g, '_');
-        const filename = `${manufacturer}_${model}.json`;
+        
+        // Добавляем информацию о modelIds и manufacturerIds в имя файла, если они есть
+        let additionalInfo = '';
+        if (json.modelIds && Array.isArray(json.modelIds) && json.modelIds.length > 0) {
+            additionalInfo += `_${json.modelIds[0].replace(/\s+/g, '_')}`;
+        }
+        if (json.manufacturerIds && Array.isArray(json.manufacturerIds) && json.manufacturerIds.length > 0) {
+            additionalInfo += `_${json.manufacturerIds[0].replace(/\s+/g, '_')}`;
+        }
+        
+        const filename = `${manufacturer}_${model}${additionalInfo}.json`;
         const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -139,19 +149,59 @@ window.initDragAndDrop = function() {
                     fileContent = fileContent.replace(/^\uFEFF/, '');
                     const json = JSON.parse(fileContent);
                     document.getElementById('errorOutput').textContent = '';
+                    document.getElementById('warningOutput').textContent = '';
                     document.getElementById('correctionOutput').textContent = '';
                     document.getElementById('autoFixContainer').innerHTML = '';
                     window.selectTemplateWithDropdown(json, (selectedTemplate) => {
-                        window.editor.setValue(JSON.stringify(selectedTemplate, null, 2));
+                        // Очищаем состояние свёрнутости при выборе шаблона
+                        if (window.clearFormCollapsedState) {
+                            window.clearFormCollapsedState();
+                        }
+                        if (window.clearFormDatalists) {
+                            window.clearFormDatalists();
+                        }
+                        
+                        // Применяем исправления к загруженному шаблону, если есть функция applyCorrections
+                        let finalTemplate = selectedTemplate;
+                        if (typeof window.applyCorrections === 'function' && window.schema && window.allowedInputTypesFromSchema) {
+                            try {
+                                const { finalJson, corrections } = window.applyCorrections(selectedTemplate, window.schema, window.allowedInputTypesFromSchema);
+                                finalTemplate = finalJson;
+                                
+                                if (corrections.length > 0) {
+                                    document.getElementById('correctionOutput').innerHTML = `<ul><li>Автоматически применены исправления:</li><li>${corrections.join('</li><li>')}</li></ul>`;
+                                }
+                            } catch (e) {
+                                console.warn('Ошибка при применении исправлений:', e);
+                            }
+                        }
+                        
+                        window.editor.setValue(JSON.stringify(finalTemplate, null, 2));
                         window.editor.refresh();
+                        
+                        // Автоматическая валидация загруженного содержимого
+                        setTimeout(() => {
+                            if (typeof window.autoValidateEditorContent === 'function') {
+                                window.autoValidateEditorContent();
+                            }
+                        }, 100);
+                        
+                        // Обновляем форму, если она активна
+                        try {
+                            if (window.renderFormEditor && document.getElementById('formEditor') && document.getElementById('formEditor').style.display !== 'none') {
+                                window.renderFormEditor();
+                            }
+                        } catch(_) {}
                     });
                 } catch (e) {
                     document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка синтаксиса JSON: ${e.message}</li></ul>`;
+                    document.getElementById('warningOutput').innerHTML = '';
                 }
             };
             reader.readAsText(file);
         } else {
             document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка: Перетащите файл в формате JSON</li></ul>`;
+            document.getElementById('warningOutput').innerHTML = '';
         }
     };
     
