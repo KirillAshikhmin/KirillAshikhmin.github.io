@@ -290,21 +290,6 @@ window.initEditorToolbar = function() {
             addOption();
         }
     });
-
-    // Мастер создания шаблона — верхняя кнопка
-    const wizardTopBtn = document.getElementById('openWizardTopBtn');
-    if (wizardTopBtn) {
-        wizardTopBtn.addEventListener('click', () => {
-            // Всегда начинаем с выбора контроллера
-            const select = document.getElementById('controllerSelect');
-            window.showControllerSelectDialog(function(controllerValue){
-                if (!controllerValue) return;
-                if (select) { select.value = controllerValue; select.dispatchEvent(new Event('change', { bubbles:true })); }
-                if (typeof window.startTemplateWizard === 'function') window.startTemplateWizard(controllerValue);
-            }, false);
-        });
-    }
-
     // Обработчики кнопок копирования/вставки
     document.getElementById('copyBtn').addEventListener('click', () => {
         try {
@@ -434,16 +419,20 @@ window.showControllerSelectDialog = function(onSelect, includeClipboard = true, 
         { name: 'ZWave', value: 'ZWave' }
     ];
     
-    // Добавляем опцию "Из буфера обмена" если нужно
+    // Добавляем специальные опции если нужно
     const items = includeClipboard ? [
+        { name: 'Мастер создания', value: 'wizard', isWizard: true },
         { name: 'Из буфера обмена', value: 'clipboard', isClipboard: true },
         ...controllers
     ] : controllers;
     
     window.showModalSelectDialog({
-        title: 'Выберите контроллер',
+        title: 'Выберите способ создания',
         items: items,
         renderItem: (item) => {
+            if (item.isWizard) {
+                return `<div class='modal-select-item-title'><i class="fa-solid fa-wand-magic-sparkles"></i> ${item.name}</div>`;
+            }
             if (item.isClipboard) {
                 return `<div class='modal-select-item-title'><i class="fas fa-clipboard"></i> ${item.name}</div>`;
             }
@@ -461,6 +450,23 @@ window.showControllerSelectDialog = function(onSelect, includeClipboard = true, 
 window.createEmptyTemplate = function() {
     window.showControllerSelectDialog(function(controllerValue, item) {
         if (!controllerValue) return;
+        
+        // Если выбран "Мастер создания"
+        if (controllerValue === 'wizard') {
+            // Показываем диалог выбора контроллера снова, но уже без специальных опций
+            window.showControllerSelectDialog(function(selectedController) {
+                if (!selectedController) return;
+                const select = document.getElementById('controllerSelect');
+                if (select) {
+                    select.value = selectedController;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                if (typeof window.startTemplateWizard === 'function') {
+                    window.startTemplateWizard(selectedController);
+                }
+            }, false); // includeClipboard = false
+            return;
+        }
         
         // Если выбрана опция "Из буфера обмена"
         if (controllerValue === 'clipboard') {

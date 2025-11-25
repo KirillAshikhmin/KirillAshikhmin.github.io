@@ -707,22 +707,29 @@ body.dark .cm-tooltip-autocomplete li[aria-selected="true"] {
 .button-row-top, .button-row-bottom {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 20px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 15px;
+}
+
+.button-row-top {
+    flex-wrap: nowrap;
 }
 
 .left-buttons {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
     gap: 10px;
+    flex: 0 0 auto;
 }
 
 .center-buttons {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex: 1 1 auto;
 }
 
 .right-buttons {
@@ -730,6 +737,7 @@ body.dark .cm-tooltip-autocomplete li[aria-selected="true"] {
     flex-direction: row;
     align-items: center;
     gap: 10px;
+    flex: 0 0 auto;
 }
 
 /* Alpha Badge */
@@ -747,24 +755,108 @@ body.dark .cm-tooltip-autocomplete li[aria-selected="true"] {
 /* Responsive Design for Button Rows */
 @media (max-width: 768px) {
     .button-row-top {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 15px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 10px;
     }
     
-    .center-buttons {
-        order: 3;
-        margin-top: 15px;
-        justify-content: center;
+    /* Используем display: contents для div, чтобы его дети стали прямыми детьми left-buttons */
+    .button-row-top .left-buttons > div {
+        display: contents;
     }
     
-    .left-buttons {
+    /* Первая строка: слева Создать и Открыть (только иконки), справа Типы сервисов и Скачать (только иконки) */
+    .button-row-top .left-buttons {
         order: 1;
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-start;
+        align-items: center;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        gap: 8px;
+        max-width: 100%;
     }
     
-    .right-buttons {
+    /* Кнопки Создать и Открыть - только иконки */
+    .button-row-top .left-buttons .btn,
+    .button-row-top .left-buttons > div .btn {
+        padding: 12px !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        position: relative !important;
+        flex: 0 0 auto;
+    }
+    
+    /* Скрываем текст в кнопках, но оставляем иконки */
+    .button-row-top .left-buttons .btn,
+    .button-row-top .left-buttons > div .btn {
+        font-size: 0 !important;
+        line-height: 0 !important;
+    }
+    
+    .button-row-top .left-buttons .btn i,
+    .button-row-top .left-buttons > div .btn i {
+        font-size: 18px !important;
+        margin: 0 !important;
+        display: inline-block !important;
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+    }
+    
+    /* Скрываем текст внутри кнопок Создать и Открыть */
+    .button-row-top .left-buttons .btn > *:not(i),
+    .button-row-top .left-buttons > div .btn > *:not(i) {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+    
+    /* Правая группа кнопок на первой строке */
+    .button-row-top .right-buttons {
+        order: 1;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+    
+    .button-row-top .right-buttons .btn {
+        padding: 12px !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        position: relative !important;
+        font-size: 0 !important;
+        line-height: 0 !important;
+    }
+    
+    .button-row-top .right-buttons .btn i {
+        font-size: 18px !important;
+        margin: 0 !important;
+        display: inline-block !important;
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+    }
+    
+    /* Скрываем текст внутри правых кнопок */
+    .button-row-top .right-buttons .btn > *:not(i) {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+    
+    /* Вторая строка: переключатель код\форма по центру */
+    .center-buttons {
         order: 2;
         justify-content: center;
+        width: 100%;
+        flex: 1 1 100%;
     }
 }
 
@@ -2586,16 +2678,50 @@ body.dark .switch.field-error {
 }
 
 @media (max-width: 768px) {
+    /* Убираем отступы и скругления на мобильных */
+    .editor-section {
+        padding: 0;
+    }
+    
     .scenario-card {
         margin: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
     
-    .button-row-top, .button-row-bottom {
+    .scenario-card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+    
+    .card-header {
+        border-radius: 0;
+    }
+    
+    .card-body {
+        padding: 15px;
+    }
+    
+    .editor-container {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+    
+    .cursor-path {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+    
+    .instructions-section {
+        border-radius: 0;
+        margin-left: 0;
+        margin-right: 0;
+    }
+    
+    .button-row-bottom {
         flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .left-buttons, .right-buttons {
         align-items: stretch;
     }
     
@@ -2603,7 +2729,7 @@ body.dark .switch.field-error {
         flex-direction: column;
     }
     
-    .btn {
+    .button-row-bottom .btn {
         width: 100%;
         justify-content: center;
     }
@@ -2612,17 +2738,6 @@ body.dark .switch.field-error {
         min-width: 90%;
         max-width: 90%;
         width: 90%;
-    }
-
-    /* Перенос кнопки "Мастер создания" на отдельную строку */
-    .button-row-top .left-buttons > div {
-        flex-wrap: wrap;
-        width: 100%;
-    }
-    #openWizardTopBtn {
-        flex: 0 0 100%;
-        width: 100%;
-        order: 3; /* после Создать/Открыть */
     }
     
     /* Мобильная адаптация тулбара */
@@ -2726,7 +2841,7 @@ body.dark .switch.field-error {
 
 @media (max-width: 480px) {
     .card-body {
-        padding: 20px;
+        padding: 15px;
     }
     
     .CodeMirror {

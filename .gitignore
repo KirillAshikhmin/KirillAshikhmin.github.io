@@ -3,11 +3,9 @@ _site/
 .sass-cache/
 .jekyll-cache/
 .jekyll-metadata
-vendor/
 
 # Bundler
 .bundle/
-vendor/bundle/
 
 # OS generated files
 .DS_Store

@@ -5,14 +5,14 @@
 // -----------------------------
 // CodeMirror 6 compatibility shim for CM5 API
 // -----------------------------
-import {EditorState, EditorSelection, Compartment, StateEffect, StateField} from "https://esm.sh/@codemirror/state@6";
-import {EditorView, keymap, drawSelection, lineNumbers, Decoration} from "https://esm.sh/@codemirror/view@6";
-import {history, historyKeymap, defaultKeymap} from "https://esm.sh/@codemirror/commands@6";
-import {defaultHighlightStyle, syntaxHighlighting, foldGutter, HighlightStyle} from "https://esm.sh/@codemirror/language@6";
-import {json} from "https://esm.sh/@codemirror/lang-json@6";
-import {autocompletion, startCompletion, closeCompletion, completionKeymap} from "https://esm.sh/@codemirror/autocomplete@6";
-import {searchKeymap, openSearchPanel} from "https://esm.sh/@codemirror/search@6";
-import {tags} from "https://esm.sh/@lezer/highlight@1";
+import {EditorState, EditorSelection, Compartment, StateEffect, StateField} from "@codemirror/state";
+import {EditorView, keymap, drawSelection, lineNumbers, Decoration} from "@codemirror/view";
+import {history, historyKeymap, defaultKeymap} from "@codemirror/commands";
+import {defaultHighlightStyle, syntaxHighlighting, foldGutter, HighlightStyle} from "@codemirror/language";
+import {json} from "@codemirror/lang-json";
+import {autocompletion, startCompletion, closeCompletion, completionKeymap} from "@codemirror/autocomplete";
+import {searchKeymap, openSearchPanel} from "@codemirror/search";
+import {tags} from "@lezer/highlight";
 import { buildSuggestions, getCurrentJsonPath, getHintsForPathImproved, customJsonHint as customJsonHintImpl } from './hints.js';
 
 (function initCM6Shim(){
@@ -204,9 +204,10 @@ import { buildSuggestions, getCurrentJsonPath, getHintsForPathImproved, customJs
     { tag: [tags.bool, tags.null], color: hues.boolNull.dark },
     { tag: [tags.bracket, tags.punctuation, tags.operator], color: hues.punct.dark }
   ]);
-  const highlightCompartment = new Compartment();
 
   function createAdapter(mountEl, options){
+    // Создаем highlightCompartment внутри функции, чтобы использовать тот же экземпляр @codemirror/state
+    const highlightCompartment = new Compartment();
     const changeHandlers = [];
     const keydownHandlers = [];
     const keyupHandlers = [];
