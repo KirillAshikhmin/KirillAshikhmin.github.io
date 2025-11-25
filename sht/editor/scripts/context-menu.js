@@ -1,6 +1,8 @@
 // context-menu.js
 // Модуль для контекстного меню редактора
 
+// Используем константы из constants.js
+
 // Глобальные переменные
 let contextMenu = null;
 let isContextMenuVisible = false;
@@ -128,7 +130,7 @@ window.showContextMenu = function(x, y, event) {
     // Фокус на редактор для корректной работы горячих клавиш
     setTimeout(() => {
         window.editor.focus();
-    }, 10);
+    }, window.CONSTANTS?.TIMING?.TOAST_SHOW_DELAY || 10);
 };
 
 // Скрыть контекстное меню

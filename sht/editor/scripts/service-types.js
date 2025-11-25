@@ -1,4 +1,7 @@
 // Service Types Modal functionality
+
+// Используем константы из constants.js
+
 let serviceTypesData = null;
 let filteredServices = [];
 
@@ -41,7 +44,7 @@ async function showServiceTypes() {
     // Focus search input
     setTimeout(() => {
         searchInput.focus();
-    }, 100);
+    }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
     
     // Add search event listener
     searchInput.addEventListener('input', handleServiceSearch);

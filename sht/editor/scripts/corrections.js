@@ -2,6 +2,8 @@
 // Модуль только для исправления шаблонов (applyCorrections, correctJson, oneClickFix, oneClickFixRun)
 // Глобальные функции для использования в index.html и других js-файлах
 
+// Используем константы из constants.js
+
 // ... Здесь будет только логика applyCorrections ...
 
 // --- CodeMirror и редактор ---
@@ -447,7 +449,8 @@ window.oneClickFix = async function() {
                 reader.onload = async function(e) {
                     try {
                         let fileContent = e.target.result;
-                        fileContent = fileContent.replace(/^\uFEFF/, '');
+                        // Используем централизованную нормализацию контента
+                        fileContent = window.ContentNormalizer?.normalizeContent(fileContent) || fileContent.replace(/^\uFEFF/, '');
                         let parsed;
                         try {
                             parsed = JSON.parse(fileContent);
@@ -510,7 +513,7 @@ window.oneClickFixRun = async function() {
                 window.renderFormEditor();
             }
         } catch(_) {}
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, window.CONSTANTS?.TIMING?.AUTOCOMPLETE_SHORT_DELAY || 50));
         window.validateJson(true);
         let hasErrors = document.getElementById('errorOutput').innerHTML.trim() !== '';
         if (!hasErrors) {
@@ -523,7 +526,7 @@ window.oneClickFixRun = async function() {
         }
         document.getElementById('correctionOutput').innerHTML += '<ul><li>Найдены ошибки, попытка автоматического исправления...</li></ul>';
         window.autoFixJson(false);
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, window.CONSTANTS?.TIMING?.VALIDATION_AFTER_FIX || 200));
         hasErrors = document.getElementById('errorOutput').innerHTML.trim() !== '';
         if (!hasErrors) {
             document.getElementById('correctionOutput').innerHTML += '<ul><li>Авто-исправление успешно! Скачивание...</li></ul>';

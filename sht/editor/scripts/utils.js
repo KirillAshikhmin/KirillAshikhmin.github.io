@@ -1,6 +1,8 @@
 // utils.js
 // Вспомогательные функции, не относящиеся непосредственно к редактору кода
 
+// Используем константы из constants.js
+
 window.changeTheme = function() {
     const themeToggle = document.getElementById('themeToggle');
     let currentTheme = localStorage.getItem('theme');
@@ -146,7 +148,8 @@ window.initDragAndDrop = function() {
             reader.onload = function(e) {
                 try {
                     let fileContent = e.target.result;
-                    fileContent = fileContent.replace(/^\uFEFF/, '');
+                    // Используем централизованную нормализацию контента
+                    fileContent = window.ContentNormalizer?.normalizeContent(fileContent) || fileContent.replace(/^\uFEFF/, '');
                     const json = JSON.parse(fileContent);
                     document.getElementById('errorOutput').textContent = '';
                     document.getElementById('warningOutput').textContent = '';
@@ -184,7 +187,7 @@ window.initDragAndDrop = function() {
                             if (typeof window.autoValidateEditorContent === 'function') {
                                 window.autoValidateEditorContent();
                             }
-                        }, 100);
+                        }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                         
                         // Обновляем форму, если она активна
                         try {

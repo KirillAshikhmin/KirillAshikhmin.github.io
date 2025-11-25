@@ -55,7 +55,7 @@
 
     <!-- Cache version - обновите это значение при изменении ресурсов -->
     <script>
-        window.CACHE_VERSION = 'v=1.0.3-20251125170316';
+        window.CACHE_VERSION = 'v=1.0.15-20251125211829';
         // Функция для добавления версии к URL (для динамически загружаемых ресурсов)
         window.addCacheVersion = function(url) {
             if (!url || url.startsWith('http://') || url.startsWith('https://') || url.startsWith('//')) {
@@ -70,34 +70,34 @@
     <script type="importmap">
     {
         "imports": {
-            "@codemirror/state": "./vendor/codemirror/state.js?v=1.0.3-20251125170316",
-            "@codemirror/view": "./vendor/codemirror/view.js?v=1.0.3-20251125170316",
-            "@codemirror/commands": "./vendor/codemirror/commands.js?v=1.0.3-20251125170316",
-            "@codemirror/language": "./vendor/codemirror/language.js?v=1.0.3-20251125170316",
-            "@codemirror/lang-json": "./vendor/codemirror/lang-json.js?v=1.0.3-20251125170316",
-            "@codemirror/autocomplete": "./vendor/codemirror/autocomplete.js?v=1.0.3-20251125170316",
-            "@codemirror/search": "./vendor/codemirror/search.js?v=1.0.3-20251125170316",
-            "@lezer/highlight": "./vendor/codemirror/lezer-highlight.js?v=1.0.3-20251125170316",
-            "@lezer/common": "./vendor/lezer/common.js?v=1.0.3-20251125170316",
-            "@lezer/json": "./vendor/lezer/json.js?v=1.0.3-20251125170316",
-            "@lezer/lr": "./vendor/lezer/lr.js?v=1.0.3-20251125170316",
-            "@marijn/find-cluster-break": "./vendor/marijn/find-cluster-break.js?v=1.0.3-20251125170316",
-            "style-mod": "./vendor/style-mod.js?v=1.0.3-20251125170316",
-            "w3c-keyname": "./vendor/w3c-keyname.js?v=1.0.3-20251125170316",
-            "crelt": "./vendor/crelt.js?v=1.0.3-20251125170316"
+            "@codemirror/state": "./vendor/codemirror/state.js?v=1.0.15-20251125211829",
+            "@codemirror/view": "./vendor/codemirror/view.js?v=1.0.15-20251125211829",
+            "@codemirror/commands": "./vendor/codemirror/commands.js?v=1.0.15-20251125211829",
+            "@codemirror/language": "./vendor/codemirror/language.js?v=1.0.15-20251125211829",
+            "@codemirror/lang-json": "./vendor/codemirror/lang-json.js?v=1.0.15-20251125211829",
+            "@codemirror/autocomplete": "./vendor/codemirror/autocomplete.js?v=1.0.15-20251125211829",
+            "@codemirror/search": "./vendor/codemirror/search.js?v=1.0.15-20251125211829",
+            "@lezer/highlight": "./vendor/codemirror/lezer-highlight.js?v=1.0.15-20251125211829",
+            "@lezer/common": "./vendor/lezer/common.js?v=1.0.15-20251125211829",
+            "@lezer/json": "./vendor/lezer/json.js?v=1.0.15-20251125211829",
+            "@lezer/lr": "./vendor/lezer/lr.js?v=1.0.15-20251125211829",
+            "@marijn/find-cluster-break": "./vendor/marijn/find-cluster-break.js?v=1.0.15-20251125211829",
+            "style-mod": "./vendor/style-mod.js?v=1.0.15-20251125211829",
+            "w3c-keyname": "./vendor/w3c-keyname.js?v=1.0.15-20251125211829",
+            "crelt": "./vendor/crelt.js?v=1.0.15-20251125211829"
         }
     }
     </script>
 
-    <link rel="stylesheet" href="vendor/bootstrap.min.css?v=1.0.3-20251125170316">
-    <link rel="stylesheet" href="vendor/font-awesome.min.css?v=1.0.3-20251125170316">
+    <link rel="stylesheet" href="vendor/bootstrap.min.css?v=1.0.15-20251125211829">
+    <link rel="stylesheet" href="vendor/font-awesome.min.css?v=1.0.15-20251125211829">
     <!-- CodeMirror 6 uses CSS-in-JS; we only keep our own stylesheet below -->
-    <link rel="stylesheet" href="style.css?v=1.0.3-20251125170316">
-    <script src="vendor/ajv.min.js?v=1.0.3-20251125170316"></script>
-    <script src="vendor/jszip.min.js?v=1.0.3-20251125170316"></script>
-    <script src="vendor/FileSaver.min.js?v=1.0.3-20251125170316"></script>
-    <script src="vendor/untar.min.js?v=1.0.3-20251125170316"></script>
-    <script src="vendor/pako.min.js?v=1.0.3-20251125170316"></script>
+    <link rel="stylesheet" href="style.css?v=1.0.15-20251125211829">
+    <script src="vendor/ajv.min.js?v=1.0.15-20251125211829"></script>
+    <script src="vendor/jszip.min.js?v=1.0.15-20251125211829"></script>
+    <script src="vendor/FileSaver.min.js?v=1.0.15-20251125211829"></script>
+    <script src="vendor/untar.min.js?v=1.0.15-20251125211829"></script>
+    <script src="vendor/pako.min.js?v=1.0.15-20251125211829"></script>
 </head>
 
 <body class="system">
@@ -142,11 +142,11 @@
                                         accept=".json,.zip,application/gzip,application/x-gzip,application/x-tar,.gz,.tar.gz"
                                         style="display: none;">
                                     <div style="display: flex; gap: 10px;">
-                                        <button onclick="createEmptyTemplate()" class="btn btn-primary">
+                                        <button onclick="createEmptyTemplate()" class="btn btn-success">
                                             <i class="fas fa-plus"></i> Создать
                                         </button>
                                         <button onclick="document.getElementById('uploadFile').click()"
-                                            class="btn btn-outline-primary">
+                                            class="btn btn-primary">
                                             <i class="fas fa-folder-open"></i> Открыть
                                         </button>
                                     </div>
@@ -186,9 +186,6 @@
                                         </button>
                                         <button onclick="validateJson()" class="btn btn-info">
                                             <i class="fas fa-check-circle"></i> Валидировать
-                                        </button>
-                                        <button onclick="formatJson()" class="btn btn-secondary">
-                                            <i class="fas fa-indent"></i> Форматировать
                                         </button>
                                     </div>
                                     <div id="autoFixContainer"></div>
@@ -236,7 +233,6 @@
                                             </li>
                                             <li>Если в шаблоне есть ошибки валидации - нажмите "Попробовать исправить
                                                 автоматически" и/или исправьте вручную</li>
-                                            <li>Нажмите кнопку "Форматировать" для форматирования кода</li>
                                             <li>Скачайте шаблон</li>
                                             <li>Обновить шаблон в Sprut.hub</li>
                                         </ol>
@@ -440,19 +436,23 @@
         </div>
     </div>
 
-    <script src="vendor/bootstrap.bundle.min.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/field-tips.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/utils.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/corrections.js?v=1.0.3-20251125170316"></script>
-    <script type="module" src="scripts/hints.js?v=1.0.3-20251125170316"></script>
-    <script type="module" src="scripts/editor.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/editor-toolbar.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/validation.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/combobox.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/form-view.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/archive.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/context-menu.js?v=1.0.3-20251125170316"></script>
-    <script src="scripts/service-types.js?v=1.0.3-20251125170316"></script>
+    <script src="vendor/bootstrap.bundle.min.js?v=1.0.15-20251125211829"></script>
+    <!-- Константы проекта (должны загружаться первыми) -->
+    <script src="scripts/constants.js?v=1.0.15-20251125211829"></script>
+    <!-- Утилиты (после констант) -->
+    <script src="scripts/utils/content-normalizer.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/field-tips.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/utils.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/corrections.js?v=1.0.15-20251125211829"></script>
+    <script type="module" src="scripts/hints.js?v=1.0.15-20251125211829"></script>
+    <script type="module" src="scripts/editor.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/editor-toolbar.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/validation.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/combobox.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/form-view.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/archive.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/context-menu.js?v=1.0.15-20251125211829"></script>
+    <script src="scripts/service-types.js?v=1.0.15-20251125211829"></script>
     
     <!-- Для обновления версии: измените значение v=1.0.2-20251125163905 в URL всех ресурсов выше -->
 

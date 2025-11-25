@@ -3,7 +3,22 @@
 
 // Toast уведомления
 window.showToast = function(message, type = 'info', duration = 3000) {
+    // Используем константы из window.CONSTANTS
+    const TIMING = window.CONSTANTS?.TIMING || {};
+    const MESSAGE_TYPES = window.CONSTANTS?.MESSAGE_TYPES || {};
+    type = type || MESSAGE_TYPES.INFO || 'info';
+    duration = duration || TIMING.TOAST_DEFAULT_DURATION || 3000;
     const container = document.getElementById('toastContainer');
+    if (!container) {
+        console.error('Toast container not found');
+        return;
+    }
+    
+    if (!message) {
+        console.warn('Empty toast message');
+        return;
+    }
+    
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
@@ -13,7 +28,7 @@ window.showToast = function(message, type = 'info', duration = 3000) {
     // Показываем toast
     setTimeout(() => {
         toast.classList.add('show');
-    }, 10);
+    }, window.CONSTANTS?.TIMING?.TOAST_SHOW_DELAY || 10);
     
     // Скрываем и удаляем toast
     setTimeout(() => {
@@ -22,7 +37,7 @@ window.showToast = function(message, type = 'info', duration = 3000) {
             if (container.contains(toast)) {
                 container.removeChild(toast);
             }
-        }, 300);
+        }, window.CONSTANTS?.TIMING?.TOAST_HIDE_ANIMATION || 300);
     }, duration);
 };
 
@@ -73,7 +88,7 @@ window.initEditorToolbar = function() {
             
             <div class="toolbar-separator"></div>
             
-            <!-- Группа поиска/замены -->
+            <!-- Группа поиска/замены/форматирования -->
             <div class="toolbar-group">
                 <button id="findBtn" class="toolbar-btn" title="Найти (Ctrl+F)">
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5" stroke="var(--cm-foreground)" stroke-width="2"/><line x1="13" y1="13" x2="16" y2="16" stroke="var(--cm-foreground)" stroke-width="2"/></svg>
@@ -82,6 +97,12 @@ window.initEditorToolbar = function() {
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cm-foreground)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M2 12A10 10 0 0 1 12 2m0 0v4m0-4h-4"/>
                         <path d="M22 12A10 10 0 0 1 12 22m0 0v-4m0 4h4"/>
+                    </svg>
+                </button>
+                <button id="formatBtn" class="toolbar-btn" title="Форматировать">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cm-foreground)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 18 22 12 16 6"/>
+                        <polyline points="8 6 2 12 8 18"/>
                     </svg>
                 </button>
             </div>
@@ -158,6 +179,10 @@ window.initEditorToolbar = function() {
     document.getElementById('replaceBtn').addEventListener('click', () => {
         window.editor.execCommand('replace');
     });
+    
+    document.getElementById('formatBtn').addEventListener('click', () => {
+        window.formatJson();
+    });
 
     // Функции добавления элементов
     document.getElementById('addServiceBtn').addEventListener('click', () => {
@@ -177,7 +202,7 @@ window.initEditorToolbar = function() {
                         if (typeof window.autoValidateEditorContent === 'function') {
                             window.autoValidateEditorContent();
                         }
-                    }, 100);
+                    }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                     
                     window.showToast('Сервис добавлен через мастер', 'success');
                 } catch(e) { window.showToast('Ошибка добавления сервиса: '+e.message, 'error'); }
@@ -208,7 +233,7 @@ window.initEditorToolbar = function() {
                             if (typeof window.autoValidateEditorContent === 'function') {
                                 window.autoValidateEditorContent();
                             }
-                        }, 100);
+                        }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                         
                         window.showToast('Характеристики добавлены через мастер', 'success');
                     }, existingTypesForDialog);
@@ -240,7 +265,7 @@ window.initEditorToolbar = function() {
                             if (typeof window.autoValidateEditorContent === 'function') {
                                 window.autoValidateEditorContent();
                             }
-                        }, 100);
+                        }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                         
                         // Обновляем форму, если она активна
                         try {
@@ -274,7 +299,7 @@ window.initEditorToolbar = function() {
                         if (typeof window.autoValidateEditorContent === 'function') {
                             window.autoValidateEditorContent();
                         }
-                    }, 100);
+                    }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                     
                     // Обновляем форму, если она активна
                     try {
@@ -347,7 +372,7 @@ window.initEditorToolbar = function() {
         });
     }
 
-    setTimeout(updateToolbarButtonsVisibility, 0);
+    setTimeout(updateToolbarButtonsVisibility, window.CONSTANTS?.TIMING?.RENDER_DELAY || 0);
     if (window.editor) {
         window.editor.on('cursorActivity', updateToolbarButtonsVisibility);
         window.editor.on('focus', updateToolbarButtonsVisibility);
@@ -411,7 +436,14 @@ window.openTemplateWizard = function() {
 
 // Диалог выбора контроллера
 window.showControllerSelectDialog = function(onSelect, includeClipboard = true, onClose = null) {
-    const controllers = [
+    // Early return: проверяем наличие showModalSelectDialog
+    if (typeof window.showModalSelectDialog !== 'function') {
+        console.error('showModalSelectDialog не доступен');
+        return;
+    }
+    
+    // Используем контроллеры из констант
+    const controllers = window.CONSTANTS?.CONTROLLERS || [
         { name: 'MQTT', value: 'MQTT' },
         { name: 'ZigBee', value: 'ZigBee' },
         { name: 'ModBus', value: 'ModBus' },
@@ -521,7 +553,7 @@ window.createEmptyTemplate = function() {
             if (typeof window.autoValidateEditorContent === 'function') {
                 window.autoValidateEditorContent();
             }
-        }, 100);
+        }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
         
         // Обновляем форму, если она активна
         try {
@@ -590,7 +622,7 @@ function saveAndRestoreCursorPosition(operation) {
         window.editor.setCursor(currentPos);
         window.editor.scrollTo(currentScroll.left, currentScroll.top);
         window.editor.focus();
-    }, 10);
+    }, window.CONSTANTS?.TIMING?.TOAST_SHOW_DELAY || 10);
 }
 
 
@@ -1303,7 +1335,7 @@ window.handleClipboardPaste = function(onControllerDetected, onControllerNotDete
                         if (typeof window.autoValidateEditorContent === 'function') {
                             window.autoValidateEditorContent();
                         }
-                    }, 100);
+                    }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                     
                     window.showToast(`Контроллер ${detectedController} определен автоматически`, 'success');
                     

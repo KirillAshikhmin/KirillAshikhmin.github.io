@@ -1,6 +1,8 @@
 // combobox.js
 // Переиспользуемый компонент combobox для форм
 
+// Используем константы из constants.js
+
 (function() {
     // Функция для создания переиспользуемого combobox
     function createCombobox(options, placeholder, onSelect, onInput, autoOpen = false) {
@@ -94,7 +96,7 @@
             // Небольшая задержка для корректного отображения
             setTimeout(() => {
                 dropdownList.style.display = 'block';
-            }, 10);
+            }, window.CONSTANTS?.TIMING?.TOAST_SHOW_DELAY || 10);
         }
         
         // Возвращаем объект с методами для управления

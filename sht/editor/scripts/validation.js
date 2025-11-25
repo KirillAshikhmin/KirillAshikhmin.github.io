@@ -2,6 +2,8 @@
 // Модуль для валидации, подсветки ошибок и автокоррекции JSON
 // Глобальные функции для использования в index.html и других js-файлах
 
+// Используем константы из constants.js
+
 window.highlightErrorLine = function(path, jsonStr) {
     if (!path) return 1;
     const lines = jsonStr.split('\n');
@@ -317,7 +319,7 @@ window.autoFixJson = function(isManual = true) {
         if (corrections.length > 0) {
             setTimeout(() => {
                 window.validateJsonInternal(true);
-            }, 100);
+            }, window.CONSTANTS?.TIMING?.VALIDATION_AFTER_FIX || 100);
         }
     } catch (e) {
         document.getElementById('errorOutput').innerHTML = `<ul><li>Ошибка автоматического исправления: ${e.message}</li></ul>`;
@@ -355,7 +357,7 @@ window.formatJson = function() {
                 window.editor.setCursor(cursor);
                 window.editor.scrollTo(scroll.left, scroll.top);
             } catch (_) {}
-        }, 0);
+        }, window.CONSTANTS?.TIMING?.RENDER_DELAY || 0);
         window.clearErrorHighlights();
         
         // Автоматическая валидация после форматирования
@@ -363,7 +365,7 @@ window.formatJson = function() {
             if (typeof window.autoValidateEditorContent === 'function') {
                 window.autoValidateEditorContent();
             }
-        }, 100);
+        }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
         
         // Обновляем форму, если она активна
         try {

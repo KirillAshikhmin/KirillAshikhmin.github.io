@@ -472,7 +472,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 }
             };
             // Небольшая задержка, чтобы CodeMirror успел отрисоваться
-            setTimeout(apply, 0);
+            setTimeout(apply, window.CONSTANTS?.TIMING?.RENDER_DELAY || 0);
         } catch (_) {}
     })();
 
@@ -531,7 +531,7 @@ window.addEventListener('DOMContentLoaded', function () {
         if (!/(,\s*)$/.test(beforeCursor) && !/^\s*[,{\[\s]*$/.test(beforeCursor)) {
             setTimeout(() => {
                 cm.execCommand('autocomplete');
-            }, 100);
+            }, window.CONSTANTS?.TIMING?.AUTOCOMPLETE_LONG_DELAY || 100);
         }
         }
 
@@ -544,7 +544,7 @@ window.addEventListener('DOMContentLoaded', function () {
             if (!/(,\s*)$/.test(beforeCursor) && !/^\s*[,{\[\s]*$/.test(beforeCursor)) {
                 setTimeout(() => {
                     cm.execCommand('autocomplete');
-                }, 100);
+                }, window.CONSTANTS?.TIMING?.AUTOCOMPLETE_LONG_DELAY || 100);
             }
         }
     });
@@ -565,7 +565,7 @@ window.addEventListener('DOMContentLoaded', function () {
             if (!/^\s*[,{\[\s]*$/.test(beforeCursor)) {
                 setTimeout(() => {
                     cm.execCommand('autocomplete');
-                }, 50);
+                }, window.CONSTANTS?.TIMING?.AUTOCOMPLETE_SHORT_DELAY || 50);
             }
         }
     });
@@ -705,7 +705,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 // Автоматическая валидация при загрузке страницы, если в редакторе есть содержимое
                 setTimeout(() => {
                     window.autoValidateEditorContent();
-                }, 100);
+                }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
             })
             .catch(error => {
                 console.error('Ошибка загрузки схемы:', error);
@@ -782,7 +782,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 callback(item);
                 if (window.oneClickFixMode) {
                     window.oneClickFixMode = false;
-                    setTimeout(() => window.oneClickFixRun(), 100);
+                    setTimeout(() => window.oneClickFixRun(), window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
                 }
             },
             enableSearch: false
@@ -814,7 +814,8 @@ window.addEventListener('DOMContentLoaded', function () {
             reader.onload = function (e) {
                 try {
                     let fileContent = e.target.result;
-                    fileContent = fileContent.replace(/^\uFEFF/, '');
+                    // Используем централизованную нормализацию контента
+                    fileContent = window.ContentNormalizer?.normalizeContent(fileContent) || fileContent.replace(/^\uFEFF/, '');
                     let parsed = JSON.parse(fileContent);
                     document.getElementById('errorOutput').textContent = '';
                     document.getElementById('correctionOutput').textContent = '';
@@ -926,8 +927,8 @@ window.addEventListener('DOMContentLoaded', function () {
         const el = window.editor.getWrapperElement();
         let pressTimer = null;
         let startX = 0, startY = 0;
-        const threshold = 550; // мс удержания
-        const moveTolerance = 10; // px
+        const threshold = window.CONSTANTS?.TIMING?.LONG_PRESS_DELAY || 550; // мс удержания
+        const moveTolerance = window.CONSTANTS?.TIMING?.MOVE_TOLERANCE || 10; // px
 
         const clearTimer = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
         const onTouchStart = (e) => {
@@ -1292,7 +1293,7 @@ window.addEventListener('DOMContentLoaded', function () {
                 if (typeof window.autoValidateEditorContent === 'function') {
                     window.autoValidateEditorContent();
                 }
-            }, 100);
+            }, window.CONSTANTS?.TIMING?.VALIDATION_DELAY || 100);
             
             // Обновляем форму, если она активна
             try {
