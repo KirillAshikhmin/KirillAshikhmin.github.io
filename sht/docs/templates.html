@@ -173,7 +173,7 @@
             <li><b>name</b> (опц.), <b>description</b> (опц.), <b>unit</b> (опц.).</li>
             <li><b>value</b> (опц.): начальное/фиксированное значение (например, <code>TemperatureDisplayUnits: "CELSIUS"</code>).</li>
             <li><b>minValue</b>, <b>maxValue</b>, <b>minStep</b> — диапазон и шаг.</li>
-            <li><b>validValues</b> (опц.): перечень допустимых значений (списком чисел или констант через запятую, например <code>"OFF,HEAT,COOL"</code>).</li>
+            <li><b>validValues</b> (опц.): перечень допустимых значений, по умолчанию доступны все, можно ограничить, указав определённые  (списком чисел или констант через запятую, например <code>"OFF,HEAT,COOL"</code>).</li>
             <li><b>write</b> (опц.): можно ли записывать значение (<code>true/false</code>).</li>
             <li><b>visible</b> (опц.): скрыть/показать характеристику.</li>
             <li><b>link</b>: как прочитать/записать значение через выбранный контроллер (см. ниже).</li>
@@ -253,10 +253,89 @@
           <li><b>options</b> часто содержат параметры устройства с полями <b>id</b>, <b>size</b>, <b>unit</b>, <b>values</b> (справочники).</li>
         </ul>
         <hr>
-        <h5>Xiaomi</h5>
+          <h5>Xiaomi</h5>
+          <ul>
+            <li><b>id</b> (device id), <b>getProp</b>, <b>setProp</b> - свойства протокола MIIO. Дополнительно возможны <b>scale</b> и <b>map</b> для приведения единиц/состояний.</li>
+            <li><b>id</b> использует формат MIoT-спецификации <code>"service.property"</code>:
+              <ul>
+                <li><code>"2.1"</code> = on/off (сервис 2 = light control, property 1 = power)</li>
+                <li><code>"2.2"</code> = brightness (0-65535 для Yeelight)</li>
+                <li><code>"2.3"</code> = color temperature (mirek)</li>
+                <li><code>"3.1"</code> = humidity, <code>"3.4"</code> = PM2.5, <code>"3.5"</code> = PM10, <code>"3.7"</code> = temperature</li>
+                <li><code>"6.1"</code> = battery level</li>
+              </ul>
+            </li>
+            <li><b>getProp</b>/<b>setProp</b> используются для чтения/записи свойств из JSON-payload (вместо MQTT-топиков).
+              <pre><code>{
+  "type": "On",
+  "link": [{ "type": "Boolean", "getProp": "main_power", "setProp": "set_power",
+            "map": { "false": "off", "true": "on" } }]
+}</code></pre>
+            </li>
+            <li><b>set: {method, param}</b> — формат для MIoT-RPC команд (вместо <code>setProp</code>).
+              Устройство получает RPC <code>{"method": "...", "params": [...]}</code> через свойства
+              <code>miio</code> или <code>siid</code>+<code>piid</code>. В <code>param</code> placeholder
+              <code>(value)</code> подставляется текущее значение характеристики.
+              <pre><code>{
+  "type": "ColorTemperature",
+  "link": [{
+    "type": "Integer",
+    "getProp": "ct",
+    "set": { "method": "set_ct_abx", "param": "(value),\"smooth\",500" }
+  }]
+}</code></pre>
+              Допускается комбинирование: <code>getProp</code> для чтения, <code>set: {...}</code> для записи
+              в одном объекте.
+            </li>
+            <li><b>getBLE</b> (опц.): имя поля для BLE-fallback (Qingping, Xiaomi Mijia).
+              <code>"getBLE": "PM2.5"</code> — значение будет также прочитано по BLE с указанным именем.</li>
+          </ul>
+      </div></div>
+    </section>
+
+    <section class="mb-5">
+      <h2 class="mb-3"><i class="fas fa-cubes"></i> Базовые подшаблоны (ZigBee / Xiaomi)</h2>
+      <div class="card scenario-card"><div class="card-body">
+        <p>В каталогах ZigBee и части Xiaomi шаблон часто состоит из <b>композиции базовых подшаблонов</b> — маленьких переиспользуемых файлов, реализующих один логический сервис (один ZCL-кластер, один MIoT-блок, одну фичу). Подшаблоны лежат в файловой системе хаба и загружаются по относительному пути.</p>
+
+        <h5>Как подключаются</h5>
+        <p>В шаблоне верхнего уровня используется поле <b>template</b> с массивом путей:</p>
+        <pre><code>{
+  "manufacturer": "Aqara",
+  "model": "DLKZMK12LM",
+  "template": [
+    "/_Switch/OnOff.json",
+    "/_Xiaomi/0201_SwitchPowerMemory.json",
+    "/_Xiaomi/000A_SwitchButtonType.json",
+    "/_Xiaomi/0203_SwitchPowerIndicator.json"
+  ]
+}</code></pre>
+        <p>Путь может быть <b>абсолютным</b> (начинается с <code>/_</code>) — тогда подшаблон ищется в каталоге хаба, или <b>относительным</b> (начинается с <code>./</code>) — тогда относительно файла текущего шаблона.</p>
+
+        <h5>Структура подшаблона</h5>
+        <p>Подшаблон — это обычный JSON-файл с теми же полями, что и обычный шаблон, но обычно без <code>manufacturer</code>/<code>model</code> — он только описывает сервисы и характеристики. Пример <code>/_Light/OnBrightnessTemperature.json</code>:</p>
+        <pre><code>{
+  "services": [{
+    "type": "Lightbulb",
+    "characteristics": [
+      { "type": "On",         "link": [{ "endpoint": 1, "cluster": "0006_OnOff",   "attribute": "0000_OnOff" }] },
+      { "type": "Brightness", "link": [{ "endpoint": 1, "cluster": "0008_LevelControl", "attribute": "0000_Level" }] },
+      { "type": "ColorTemperature", "link": [{ "endpoint": 1, "cluster": "0300_ColorControl",
+        "attribute": "0007_ColorTemperatureMireds" }] }
+    ]
+  }]
+}</code></pre>
+        <p>Подшаблон тоже может подключать другие подшаблоны через собственный <code>template</code> — это позволяет собирать сложные устройства из простых блоков.</p>
+
+        <h5>Где живут подшаблоны в исходниках</h5>
         <ul>
-          <li><b>id</b> (device id), <b>getProp</b>, <b>setProp</b> — свойства протокола MIIO. Дополнительно возможны <b>scale</b> и <b>map</b> для приведения единиц/состояний.</li>
+          <li>ZigBee: <code>Templates/ZigBee/_Switch/</code>, <code>_Light/</code>, <code>_Battery/</code>, <code>_Tuya/</code>, <code>_Xiaomi/</code> и др. (всего ~30 директорий).</li>
+          <li>Xiaomi: <code>Templates/Xiaomi/_Yeelight/</code>, <code>_Philips/</code>, <code>_Xiaomi/</code> (~20 файлов).</li>
+          <li>Облачный каталог MAIN содержит готовые сборки и использует подшаблоны по тому же принципу.</li>
         </ul>
+
+        <h5>Когда использовать</h5>
+        <p>Для типичных ZigBee/Xiaomi-устройств лучше <b>композировать</b> подшаблоны — это компактнее, консистентнее и обновления подшаблонов автоматически применяются ко всем устройствам. Если нужна нестандартная логика (несколько endpoints, специфичные ZCL-кластеры), пишите полный шаблон с <code>services</code>.</p>
       </div></div>
     </section>
 
