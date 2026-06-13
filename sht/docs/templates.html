@@ -173,19 +173,7 @@
             <li><b>name</b> (опц.), <b>description</b> (опц.), <b>unit</b> (опц.).</li>
             <li><b>value</b> (опц.): начальное/фиксированное значение (например, <code>TemperatureDisplayUnits: "CELSIUS"</code>).</li>
             <li><b>minValue</b>, <b>maxValue</b>, <b>minStep</b> — диапазон и шаг.</li>
-            <li><b>validValues</b> (опц.): перечень допустимых значений (списком чисел или констант через запятую, например <code>"OFF,HEAT,COOL"</code>).
-              <ul>
-                <li>Формат — <b>строка</b> со значениями через запятую без пробелов: <code>"OFF,HEAT,COOL"</code>, <code>"AUTO,HEAT,COOL,OFF"</code>.</li>
-                <li>Применяется в HomeKit-стиле: каждое значение — это enum-имя из спецификации HAP. Например, для <code>CurrentHeatingCoolingState</code> используются <code>OFF,HEAT,COOL</code>; для <code>TargetFanState</code> — <code>OFF,AUTO,LOW,MEDIUM,HIGH</code>.</li>
-                <li>Без <code>validValues</code> характеристика enum-типа не пройдёт валидацию и UI не покажет корректный набор значений.</li>
-                <li>Пример целиком (термостат с фиксированными enum):</li>
-              </ul>
-              <pre><code>{
-  "type": "TargetHeatingCoolingState",
-  "validValues": "HEAT",
-  "option": true
-}</code></pre>
-            </li>
+            <li><b>validValues</b> (опц.): перечень допустимых значений, по умолчанию доступны все, можно ограничить, указав определённые  (списком чисел или констант через запятую, например <code>"OFF,HEAT,COOL"</code>).</li>
             <li><b>write</b> (опц.): можно ли записывать значение (<code>true/false</code>).</li>
             <li><b>visible</b> (опц.): скрыть/показать характеристику.</li>
             <li><b>link</b>: как прочитать/записать значение через выбранный контроллер (см. ниже).</li>
